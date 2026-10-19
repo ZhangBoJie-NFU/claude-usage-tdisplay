@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """
-把 WiFi 與 Claude token 寫進 T-Display（存在板子的 NVS，不寫進原始碼）。
+Write WiFi and the Claude token to the T-Display (stored in the board's NVS, not in the source).
 
-    python provision.py --wifi "SSID" "密碼"
-    python provision.py --token          # 隱藏輸入，貼上 `claude setup-token` 產生的 token
-    python provision.py --status         # 查看板子目前狀態（不含 token）
-    python provision.py --clear-wifi     # 清除板子上的 WiFi 帳密
+    python provision.py --wifi "SSID" "PASSWORD"
+    python provision.py --token          # hidden input; paste the token from `claude setup-token`
+    python provision.py --status         # show the board's current status (without the token)
+    python provision.py --clear-wifi     # erase the WiFi credentials on the board
 
-模式切換（USB / WiFi）用板子的右鍵；WiFi 也可以長按右鍵 5 秒後用手機掃 QR code 設定。
+Switch modes (USB / WiFi) with the board's right button; WiFi can also be set up from
+a phone by holding the right button for 5 seconds and scanning the QR code.
 
-可加 --port COMx（預設自動偵測）。需要 pyserial。
+Add --port COMx to pick the port (default: auto-detect). Requires pyserial.
 """
 
 import argparse
@@ -22,7 +23,7 @@ from usage_bridge import find_port, open_serial
 
 
 def wait_line(ser, want, timeout):
-    """讀到以 want 開頭的一行就回傳該行；逾時回傳 None。"""
+    """Return the first line starting with `want`; None on timeout."""
     end = time.time() + timeout
     while time.time() < end:
         line = ser.readline().decode("utf-8", "ignore").strip()
@@ -51,31 +52,31 @@ def main():
     elif args.clear_wifi:
         cfg = {"ssid": "", "pass": ""}
     elif args.token:
-        tok = getpass.getpass("貼上 token（輸入不會顯示）: ").strip()
+        tok = getpass.getpass("Paste the token (input is hidden): ").strip()
         if not tok:
-            sys.exit("沒有輸入 token")
+            sys.exit("No token entered")
         if not tok.startswith("sk-ant-oat"):
-            print("警告：token 通常以 sk-ant-oat 開頭，請確認是 `claude setup-token` 產生的")
+            print("Warning: the token usually starts with sk-ant-oat; make sure it comes from `claude setup-token`")
         cfg = {"token": tok}
 
     port = args.port or find_port()
     if not port:
-        sys.exit("找不到開發板的序列埠，請用 --port 指定")
+        sys.exit("Board serial port not found, specify it with --port")
     ser = open_serial(port)
-    # 開埠時板子可能重開機，先等它說 ready（沒重開就直接逾時繼續）
+    # The board may reboot when the port opens; wait for "ready" (time out if it didn't)
     wait_line(ser, "ready", 2.5)
     ser.reset_input_buffer()
 
     if cfg is not None:
         send(ser, {"cfg": cfg})
         if wait_line(ser, "cfg ok", 5):
-            print(f"已寫入 {', '.join(cfg)}，板子重新啟動中")
+            print(f"Wrote {', '.join(cfg)}, board is restarting")
         else:
-            sys.exit("板子沒有回應，請確認韌體已更新")
+            sys.exit("No response from the board, make sure the firmware is up to date")
     else:
         send(ser, {"cmd": "status"})
         line = wait_line(ser, "{", 5)
-        print(line or "板子沒有回應")
+        print(line or "No response from the board")
     ser.close()
 
 

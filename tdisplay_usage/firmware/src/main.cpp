@@ -1,20 +1,22 @@
-// Claude Code 用量顯示 - LILYGO T-Display V1.1
+// Claude Code usage display - LILYGO T-Display V1.1
 //
-// 兩種模式，右鍵 (GPIO35) 短按互相切換，右上角時鐘左邊顯示目前模式的圖示。
-// 出廠預設 USB 模式，之後記住最後選的模式（存在 NVS）。左鍵 (GPIO0) 開關背光。
-// 右鍵長按 5 秒：清除 WiFi 設定，進入 WiFi 設定頁（QR code）。
+// Two modes; a short press of the right button (GPIO35) toggles between them, and the icon
+// left of the clock (top right) shows the current mode. Defaults to USB mode, then remembers
+// the last mode (stored in NVS). The left button (GPIO0) toggles the backlight.
+// Hold the right button for 5 s: erase the WiFi settings and open the WiFi setup page (QR code).
 //
-// USB 模式：WiFi 關閉，接收 usage_bridge.py 從 USB 送來的一行 JSON：
+// USB mode: WiFi off; receives one JSON line over USB from usage_bridge.py:
 //   {"s":2,"sr":16218,"w":68,"wr":231618,"st":"allowed","t":9582}
 //
-// WiFi 模式：板子自己每 60 秒向 Anthropic API 送出 1 token 的極小請求，只讀回應中的
-// rate-limit 標頭。USB 只需供電。WiFi 與 token 存在 NVS。
-// 還沒設定 WiFi 時，板子自己開一個熱點並顯示 QR code：手機掃描加入熱點後會跳出
-// 設定頁 (http://192.168.4.1)，選 WiFi、輸入密碼即可。也可以用 provision.py 設定。
+// WiFi mode: every 60 s the board itself sends a tiny 1-token request to the Anthropic API and
+// reads only the rate-limit headers. USB is just power. WiFi and token are stored in NVS.
+// Without WiFi settings the board opens its own hotspot and shows a QR code: scan it with a
+// phone to join the hotspot, the setup page (http://192.168.4.1) pops up, pick a network and
+// enter its password. provision.py can be used instead.
 //
-// 序列埠指令（一行 JSON，兩種模式都接受）：
-//   {"cfg":{"ssid":"..","pass":"..","token":".."}}  寫入設定（可只給部分欄位）後重開機
-//   {"cmd":"status"}                                  印出目前狀態（不含 token）
+// Serial commands (one JSON line, accepted in both modes):
+//   {"cfg":{"ssid":"..","pass":"..","token":".."}}  save settings (any subset), then reboot
+//   {"cmd":"status"}                                  print current status (without the token)
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -25,19 +27,19 @@
 #include <WebServer.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
-#include <qrcode.h>   // ESP-IDF 內建的 esp_qrcode
+#include <qrcode.h>   // esp_qrcode built into ESP-IDF
 #include <time.h>
 
 #include "root_ca.h"
 
-static const char *TZ_INFO = "CST-8";      // 台灣時間 (UTC+8)
-static const int BTN_LEFT = 0;     // 開關背光
-static const int BTN_RIGHT = 35;   // 切換 USB / WiFi 模式
-static const uint32_t POLL_MS = 60000;     // 查詢間隔；每次都是一個真實請求
-static const uint32_t RETRY_MS = 15000;    // 失敗後多久重試
-static const uint32_t STALE_MS = 180000;   // 超過 3 分鐘沒有新資料 = 資料過期
-static const uint32_t LONG_PRESS_MS = 5000;  // 右鍵長按多久重設 WiFi
-static const uint32_t HOLD_HINT_MS = 700;    // 按住超過這個時間才顯示倒數
+static const char *TZ_INFO = "CST-8";      // Taiwan time (UTC+8)
+static const int BTN_LEFT = 0;     // toggle backlight
+static const int BTN_RIGHT = 35;   // toggle USB / WiFi mode
+static const uint32_t POLL_MS = 60000;     // query interval; every query is a real request
+static const uint32_t RETRY_MS = 15000;    // retry delay after a failure
+static const uint32_t STALE_MS = 180000;   // no new data for 3 minutes = stale
+static const uint32_t LONG_PRESS_MS = 5000;  // right-button hold time to reset WiFi
+static const uint32_t HOLD_HINT_MS = 700;    // show the countdown only after holding this long
 
 static const char *API_URL = "https://api.anthropic.com/v1/messages";
 static const char *API_BODY =
@@ -47,7 +49,7 @@ static const char *API_BODY =
 enum Mode : uint8_t { MODE_USB = 0, MODE_WIFI = 1 };
 
 TFT_eSPI tft;
-TFT_eSprite canvas(&tft);   // 先畫在記憶體再一次送出，避免閃爍
+TFT_eSprite canvas(&tft);   // draw in memory first, then push once to avoid flicker
 Preferences prefs;
 WebServer server(80);
 DNSServer dns;
@@ -61,10 +63,10 @@ struct Config {
 struct Usage {
   bool valid = false;
   int s = 0, w = 0;
-  long sr = 0, wr = 0;      // 收到時距離重置的秒數
-  long clock = -1;          // USB 模式下 PC 給的時間（午夜起算秒數）
+  long sr = 0, wr = 0;      // seconds until reset at time of receipt
+  long clock = -1;          // time from the PC in USB mode (seconds since midnight)
   char st[24] = "";
-  uint32_t rxMs = 0;        // 收到這筆資料時的 millis()
+  uint32_t rxMs = 0;        // millis() when this data arrived
 } usage;
 
 Mode mode = MODE_USB;
@@ -75,24 +77,24 @@ size_t lineLen = 0;
 bool fetching = false;
 bool backlightOn = true;
 uint32_t nextFetchMs = 0;
-uint32_t restartAt = 0;      // 設定頁存檔後延遲重開機，讓回應先送到手機
+uint32_t restartAt = 0;      // delayed reboot after saving, so the response reaches the phone first
 
-// WiFi 設定頁（熱點 + captive portal）
+// WiFi setup page (hotspot + captive portal)
 bool portalOn = false;
 bool scanning = false;
 char apSsid[24] = "";
 char apPass[12] = "";
-String netHtml;              // 掃描到的 WiFi 清單（HTML）
+String netHtml;              // scanned WiFi list (HTML)
 static const int QR_MAX = 41;            // QR version 6
 uint8_t qrBits[QR_MAX * QR_MAX];
 int qrSize = 0;
 
-// 右鍵狀態（短按 / 長按）
+// Right button state (short / long press)
 bool rDown = false, rLongDone = false;
 uint32_t rDownMs = 0;
 
 // ------------------------------------------------------------------------- //
-//  設定
+//  Settings
 // ------------------------------------------------------------------------- //
 static void loadConfig() {
   prefs.begin("cfg", true);
@@ -123,7 +125,7 @@ static bool wifiOnline() { return WiFi.status() == WL_CONNECTED; }
 static void render();
 
 // ------------------------------------------------------------------------- //
-//  WiFi 設定頁：板子開熱點，畫面顯示加入熱點用的 QR code
+//  WiFi setup page: the board opens a hotspot and shows a QR code for joining it
 // ------------------------------------------------------------------------- //
 static void htmlEscape(String &out, const String &in) {
   for (char c : in) {
@@ -138,7 +140,7 @@ static void htmlEscape(String &out, const String &in) {
   }
 }
 
-// 掃描附近的 WiFi，依訊號強度排序、去掉重複名稱，做成可點選的清單
+// Scan nearby WiFi networks, sort by signal strength, drop duplicate names, build a tappable list
 static void scanNetworks() {
   int n = WiFi.scanNetworks();
   int idx[30];
@@ -162,11 +164,11 @@ static void scanNetworks() {
     htmlEscape(esc, ssid);
     netHtml += "<div class=n data-s=\"" + esc + "\" onclick=\"pick(this)\">" + esc;
     netHtml += "<small>" + String(WiFi.RSSI(idx[i])) + " dBm" +
-               (WiFi.encryptionType(idx[i]) == WIFI_AUTH_OPEN ? " 開放" : "") +
+               (WiFi.encryptionType(idx[i]) == WIFI_AUTH_OPEN ? " open" : "") +
                "</small></div>";
     shown++;
   }
-  if (!shown) netHtml = "<p><small>找不到 WiFi，請重新掃描或直接輸入名稱</small></p>";
+  if (!shown) netHtml = "<p><small>No WiFi found, rescan or type the name below</small></p>";
   WiFi.scanDelete();
 }
 
@@ -180,7 +182,7 @@ static void onQr(esp_qrcode_handle_t qr) {
 static const char PAGE_HEAD[] PROGMEM =
     "<!doctype html><html><head><meta charset=utf-8>"
     "<meta name=viewport content='width=device-width,initial-scale=1'>"
-    "<title>Claude 用量顯示 WiFi 設定</title><style>"
+    "<title>Claude usage display WiFi setup</title><style>"
     "body{font-family:sans-serif;background:#14100e;color:#f2eae4;max-width:420px;margin:auto;padding:16px}"
     "h2{color:#ec7456;font-size:20px}label{display:block;margin-top:14px}"
     "input,button{width:100%;box-sizing:border-box;padding:11px;margin-top:6px;font-size:16px;"
@@ -195,20 +197,20 @@ static void handleRoot() {
   String h;
   h.reserve(3000 + netHtml.length());
   h += FPSTR(PAGE_HEAD);
-  h += F("<h2>Claude Code 用量顯示 - WiFi 設定</h2>"
-         "<div>點選要連接的 WiFi（只支援 2.4GHz）：</div>");
+  h += F("<h2>Claude Code usage display - WiFi setup</h2>"
+         "<div>Tap the WiFi network to connect to (2.4GHz only):</div>");
   h += netHtml;
-  h += F("<p><a href='/?scan=1'>重新掃描</a></p>"
+  h += F("<p><a href='/?scan=1'>Rescan</a></p>"
          "<form method=post action=/save>"
-         "<label>WiFi 名稱<input id=s name=ssid maxlength=32 required autocomplete=off></label>"
-         "<label>WiFi 密碼<input id=p name=pass type=password maxlength=63 autocomplete=off></label>"
+         "<label>WiFi name<input id=s name=ssid maxlength=32 required autocomplete=off></label>"
+         "<label>WiFi password<input id=p name=pass type=password maxlength=63 autocomplete=off></label>"
          "<label><input type=checkbox style='width:auto' "
-         "onclick=\"p.type=this.checked?'text':'password'\"> 顯示密碼</label>"
-         "<label>Claude token（選填）<input name=token type=password autocomplete=off "
-         "placeholder='claude setup-token 產生的 token'></label><small>");
-  h += cfg.token.isEmpty() ? F("板子還沒有 token，WiFi 模式需要它才能查詢用量")
-                           : F("板子已有 token，留空表示保持不變");
-  h += F("</small><button>儲存並連線</button></form>"
+         "onclick=\"p.type=this.checked?'text':'password'\"> Show password</label>"
+         "<label>Claude token (optional)<input name=token type=password autocomplete=off "
+         "placeholder='token from claude setup-token'></label><small>");
+  h += cfg.token.isEmpty() ? F("The board has no token yet; WiFi mode needs one to query usage")
+                           : F("The board already has a token; leave empty to keep it");
+  h += F("</small><button>Save and connect</button></form>"
          "<script>function pick(e){s.value=e.dataset.s;p.focus()}</script></body></html>");
   server.send(200, "text/html; charset=utf-8", h);
 }
@@ -217,13 +219,13 @@ static void handleSave() {
   String ssid = server.arg("ssid"), pass = server.arg("pass"), token = server.arg("token");
   ssid.trim();
   token.trim();
-  const char *bad = ssid.isEmpty() || ssid.length() > 32 ? "WiFi 名稱長度不正確"
+  const char *bad = ssid.isEmpty() || ssid.length() > 32 ? "Invalid WiFi name length"
                     : pass.length() && (pass.length() < 8 || pass.length() > 63)
-                        ? "WiFi 密碼必須是 8 到 63 個字元"
+                        ? "WiFi password must be 8 to 63 characters"
                         : nullptr;
   String h = FPSTR(PAGE_HEAD);
   if (bad) {
-    h += "<p>" + String(bad) + "</p><p><a href='/'>返回</a></p></body></html>";
+    h += "<p>" + String(bad) + "</p><p><a href='/'>Back</a></p></body></html>";
     server.send(400, "text/html; charset=utf-8", h);
     return;
   }
@@ -235,15 +237,15 @@ static void handleSave() {
   prefs.end();
   String esc;
   htmlEscape(esc, ssid);
-  h += "<h2>已儲存</h2><p>板子正在重新啟動並連線到「" + esc + "」。</p>"
-       "<p>手機可以切回原本的 WiFi 了。若板子一直顯示 Connecting，"
-       "長按右鍵 5 秒重新設定。</p></body></html>";
+  h += "<h2>Saved</h2><p>The board is restarting and connecting to \"" + esc + "\".</p>"
+       "<p>You can switch your phone back to your usual WiFi. If the board keeps showing Connecting, "
+       "hold the right button for 5 seconds to set it up again.</p></body></html>";
   server.send(200, "text/html; charset=utf-8", h);
   restartAt = millis() + 1500;
 }
 
-// 手機連上熱點後的連網偵測（generate_204、hotspot-detect…）一律導向設定頁，
-// 手機就會自動跳出設定畫面
+// Phones' connectivity checks after joining the hotspot (generate_204, hotspot-detect...) are all
+// redirected to the setup page, so the phone pops it up automatically
 static void handleRedirect() {
   server.sendHeader("Location", "http://192.168.4.1/", true);
   server.send(302, "text/plain", "");
@@ -255,12 +257,12 @@ static void startPortal() {
   render();
   WiFi.disconnect(true);
   WiFi.mode(WIFI_AP_STA);
-  scanNetworks();   // 先掃描再開熱點，免得掃描時手機斷線
+  scanNetworks();   // scan before starting the hotspot so the phone isn't dropped during a scan
 
   uint8_t mac[6];
   WiFi.macAddress(mac);
   snprintf(apSsid, sizeof apSsid, "ClaudeUsage-%02X%02X", mac[4], mac[5]);
-  // 每次隨機產生熱點密碼（避開容易看錯的字元），QR code 裡已含密碼
+  // Random hotspot password each time (avoiding look-alike characters); the QR code contains it
   const char *chars = "abcdefghjkmnpqrstuvwxyz23456789";
   for (int i = 0; i < 8; i++) apPass[i] = chars[esp_random() % strlen(chars)];
   apPass[8] = 0;
@@ -290,7 +292,7 @@ static void stopPortal() {
 }
 
 // ------------------------------------------------------------------------- //
-//  模式切換
+//  Mode switching
 // ------------------------------------------------------------------------- //
 static void startMode() {
   stopPortal();
@@ -307,14 +309,14 @@ static void startMode() {
   } else {
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
-    Serial.println("ready");   // 讓 usage_bridge.py 立刻重送最後一筆資料
+    Serial.println("ready");   // tells usage_bridge.py to resend the last data immediately
   }
 }
 
 static void switchMode(Mode m) {
   mode = m;
   saveMode();
-  // 換了資料來源，舊資料不再更新，清掉以免誤會
+  // New data source: old data won't update anymore, clear it to avoid confusion
   usage = Usage();
   errMsg[0] = 0;
   lastHttp = 0;
@@ -323,7 +325,7 @@ static void switchMode(Mode m) {
 
 static void toggleMode() { switchMode(mode == MODE_USB ? MODE_WIFI : MODE_USB); }
 
-// 長按右鍵：清除 WiFi 帳密（token 保留），進入 WiFi 模式的設定頁
+// Long press of the right button: erase WiFi credentials (keep the token), open the setup page
 static void resetWifi() {
   prefs.begin("cfg", false);
   prefs.remove("ssid");
@@ -336,7 +338,7 @@ static void resetWifi() {
 }
 
 // ------------------------------------------------------------------------- //
-//  查詢 API（WiFi 模式）
+//  Query the API (WiFi mode)
 // ------------------------------------------------------------------------- //
 static int pctOf(const String &v) { return (int)lroundf(v.toFloat() * 100); }
 
@@ -380,7 +382,7 @@ static bool fetchUsage() {
     return false;
   }
 
-  // 429 等錯誤回應同樣帶有 rate-limit 標頭，所以先看標頭再看狀態碼
+  // 429 and other error responses carry the rate-limit headers too, so check headers before status
   bool ok = true;
   if (http.header(keys[0]).length()) {
     usage.s = pctOf(http.header(keys[0]));
@@ -391,7 +393,7 @@ static bool fetchUsage() {
   } else if (http.header(keys[5]).length()) {
     usage.s = pctOf(http.header(keys[5]));
     usage.sr = remainOf(http.header(keys[6]));
-    usage.w = -1;   // 沒有每週限制
+    usage.w = -1;   // no weekly limit
     usage.wr = 0;
     strlcpy(usage.st, http.header(keys[7]).c_str(), sizeof usage.st);
   } else {
@@ -400,7 +402,7 @@ static bool fetchUsage() {
       snprintf(errMsg, sizeof errMsg, "Token rejected (HTTP %d)", code);
     else
       snprintf(errMsg, sizeof errMsg, "HTTP %d, no usage data", code);
-    // 回應內容不含 token，印出來方便除錯
+    // The response body contains no token; print it for debugging
     Serial.printf("HTTP %d: %s\n", code, http.getString().substring(0, 300).c_str());
   }
   http.end();
@@ -415,7 +417,7 @@ static bool fetchUsage() {
 }
 
 // ------------------------------------------------------------------------- //
-//  畫面
+//  Display
 // ------------------------------------------------------------------------- //
 static long elapsedS() { return (long)((millis() - usage.rxMs) / 1000); }
 static bool stale() { return !usage.valid || millis() - usage.rxMs > STALE_MS; }
@@ -448,12 +450,12 @@ static bool clockText(char *out, size_t n) {
   return false;
 }
 
-// 圖示都畫在 18x16 的框內，(x, y) 為左上角
+// Icons are drawn inside an 18x16 box, (x, y) = top-left corner
 static const int ICON_W = 18;
 
 static void drawWifiIcon(int x, int y, uint16_t col) {
   int cx = x + ICON_W / 2, cy = y + 14;
-  // drawArc 的角度從 6 點鐘方向順時針算，180 = 正上方
+  // drawArc angles start at 6 o'clock and go clockwise, 180 = straight up
   canvas.drawArc(cx, cy, 13, 11, 135, 225, col, C_BG, true);
   canvas.drawArc(cx, cy, 9, 7, 135, 225, col, C_BG, true);
   canvas.drawArc(cx, cy, 5, 3, 135, 225, col, C_BG, true);
@@ -461,13 +463,13 @@ static void drawWifiIcon(int x, int y, uint16_t col) {
 }
 
 static void drawUsbIcon(int x, int y, uint16_t col) {
-  // USB-C 接口正面：膠囊形外框（2px）+ 中間的舌片
+  // Front of a USB-C port: capsule outline (2px) + the tongue in the middle
   canvas.fillRoundRect(x, y + 3, ICON_W, 11, 5, col);
   canvas.fillRoundRect(x + 2, y + 5, ICON_W - 4, 7, 3, C_BG);
   canvas.fillRoundRect(x + 5, y + 7, ICON_W - 10, 3, 1, col);
 }
 
-// 一個區塊：標籤、重置倒數、右側大字百分比、進度條
+// One block: label, reset countdown, large percentage on the right, progress bar
 static void drawBlock(int y, const char *label, int pct, long remain) {
   canvas.setTextDatum(TL_DATUM);
   canvas.setTextColor(C_FG, C_BG);
@@ -501,7 +503,7 @@ static void drawBlock(int y, const char *label, int pct, long remain) {
   }
 }
 
-// 還沒有資料時，中間顯示目前卡在哪一步
+// Before any data arrives, show which step we are stuck at
 static void drawWaiting() {
   const char *l1, *l2 = "";
   uint16_t col = C_FG;
@@ -578,7 +580,7 @@ static void drawHeader() {
     canvas.drawString(hm, right, 1, 2);
     right -= canvas.textWidth(hm, 2) + 6;
   }
-  // 連線正常且資料新鮮 -> 亮色；否則灰色
+  // Connected and data fresh -> bright; otherwise grey
   bool live = mode == MODE_WIFI ? wifiOnline() && !stale() : !stale();
   uint16_t col = live ? C_FG : C_DIM;
   if (mode == MODE_WIFI) drawWifiIcon(right - ICON_W, 1, col);
@@ -587,7 +589,7 @@ static void drawHeader() {
   canvas.drawFastHLine(0, 19, 240, C_TRACK);
 }
 
-// 設定頁畫面：左邊 QR code（加入熱點），右邊文字說明
+// Setup screen: QR code (join the hotspot) on the left, instructions on the right
 static void drawPortal() {
   if (scanning || !qrSize) {
     canvas.setTextDatum(MC_DATUM);
@@ -595,7 +597,7 @@ static void drawPortal() {
     canvas.drawString("Scanning WiFi...", 120, 60, 2);
     return;
   }
-  int sc = max(1, 131 / (qrSize + 4));       // 四周留 2 格白邊
+  int sc = max(1, 131 / (qrSize + 4));       // 2-module quiet zone on every side
   int box = (qrSize + 4) * sc;
   int x0 = 2, y0 = (135 - box) / 2;
   canvas.fillRect(x0, y0, box, box, TFT_WHITE);
@@ -623,7 +625,7 @@ static void drawPortal() {
   canvas.drawString("right: USB mode", tx, 124, 1);
 }
 
-// 按住右鍵時在底部顯示「再按幾秒就重設 WiFi」
+// While the right button is held, show "keep holding to reset WiFi" at the bottom
 static void drawHoldHint() {
   uint32_t held = millis() - rDownMs;
   if (!rDown || rLongDone || held < HOLD_HINT_MS) return;
@@ -661,14 +663,14 @@ static void render() {
 }
 
 // ------------------------------------------------------------------------- //
-//  序列埠
+//  Serial
 // ------------------------------------------------------------------------- //
 static void printStatus() {
   JsonDocument d;
   d["mode"] = mode == MODE_WIFI ? "wifi" : "usb";
   d["ssid"] = cfg.ssid;
   d["portal"] = portalOn;
-  d["wifi_status"] = (int)WiFi.status();   // 3 = 已連線，1 = 找不到 SSID，4 = 連線失敗
+  d["wifi_status"] = (int)WiFi.status();   // 3 = connected, 1 = SSID not found, 4 = connect failed
   d["ip"] = WiFi.localIP().toString();
   d["rssi"] = WiFi.RSSI();
   d["token_set"] = !cfg.token.isEmpty();
@@ -700,7 +702,7 @@ static void handleLine(const char *line) {
     printStatus();
     return;
   }
-  // 以下是 usage_bridge.py 的資料，只在 USB 模式採用
+  // The rest is data from usage_bridge.py, used only in USB mode
   if (mode != MODE_USB) return;
   if (doc["err"].is<const char *>()) {
     strlcpy(errMsg, doc["err"] | "", sizeof errMsg);
@@ -731,7 +733,7 @@ static void readSerial() {
   }
 }
 
-// 右鍵：放開時才算短按（回傳 1），按住滿 5 秒立刻觸發長按（回傳 2）
+// Right button: short press counts on release (returns 1), holding 5 s fires a long press at once (returns 2)
 static int rightButton() {
   bool down = digitalRead(BTN_RIGHT) == LOW;
   uint32_t now = millis();
@@ -743,13 +745,13 @@ static int rightButton() {
     rLongDone = true;
     ev = 2;
   } else if (!down && rDown && !rLongDone && now - rDownMs >= 30) {
-    ev = 1;   // 少於 30ms 視為彈跳
+    ev = 1;   // under 30ms counts as bounce
   }
   rDown = down;
   return ev;
 }
 
-// 按下瞬間觸發一次，含簡單消抖
+// Fires once on press, with simple debouncing
 static bool pressed(int pin, bool &prev, uint32_t &lastMs) {
   bool down = digitalRead(pin) == LOW;
   bool fire = down && !prev && millis() - lastMs > 200;
@@ -762,10 +764,10 @@ static bool pressed(int pin, bool &prev, uint32_t &lastMs) {
 void setup() {
   Serial.begin(115200);
   pinMode(BTN_LEFT, INPUT_PULLUP);
-  pinMode(BTN_RIGHT, INPUT);   // GPIO35 沒有內部上拉，板上已有外部上拉
+  pinMode(BTN_RIGHT, INPUT);   // GPIO35 has no internal pull-up; the board has an external one
 
   tft.init();
-  tft.setRotation(1);       // 橫向 240x135
+  tft.setRotation(1);       // landscape 240x135
   canvas.createSprite(240, 135);
 
   C_BG = tft.color565(0x14, 0x10, 0x0e);
@@ -806,7 +808,7 @@ void loop() {
     digitalWrite(TFT_BL, backlightOn ? TFT_BACKLIGHT_ON : !TFT_BACKLIGHT_ON);
   }
 
-  // TLS 憑證驗證需要正確時間，所以等 NTP 對時後才開始查詢
+  // TLS certificate checks need the correct time, so start querying only after NTP sync
   if (mode == MODE_WIFI && wifiOnline() && !cfg.token.isEmpty() && timeValid() &&
       (int32_t)(millis() - nextFetchMs) >= 0) {
     fetching = true;
@@ -817,7 +819,7 @@ void loop() {
     drawMs = 0;
   }
 
-  // 按住右鍵時畫面更新快一點，倒數才順
+  // Redraw faster while the right button is held so the countdown is smooth
   if (millis() - drawMs >= (rDown ? 100u : 500u)) {
     drawMs = millis();
     render();

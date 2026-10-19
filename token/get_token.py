@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """
-取得 Claude token 並寫進 T-Display（Windows / macOS / Linux 通用）。
+Get a Claude token and write it to the T-Display (works on Windows / macOS / Linux).
 
-    python get_token.py               # 執行 claude setup-token -> 貼上 token -> 驗證 -> 寫入板子
-    python get_token.py --no-write    # 只取得並驗證，不寫入板子
-    python get_token.py --skip-setup  # 已經有 setup-token 產生的 token，直接貼上
-    python get_token.py --local       # 查看這台電腦 Claude Code 目前登入的 token（不顯示完整內容）
-    python get_token.py --port COM3   # 指定序列埠（預設自動偵測）
+    python get_token.py               # run claude setup-token -> paste token -> verify -> write to board
+    python get_token.py --no-write    # only get and verify, don't write to the board
+    python get_token.py --skip-setup  # you already have a setup-token token, paste it directly
+    python get_token.py --local       # show this computer's Claude Code login token (masked)
+    python get_token.py --port COM3   # serial port (auto-detected by default)
 
-板子 WiFi 模式要用 `claude setup-token` 產生的長期 token。
-電腦上 Claude Code 自己的登入 token（--local 看到的那個）幾小時就過期，
-而且板子若自行續期會讓電腦被登出，所以不要寫進板子。
+WiFi mode on the board needs a long-lived token from `claude setup-token`.
+Claude Code's own login token on this computer (the one --local shows) expires
+within hours, and if the board refreshed it, the computer would be logged out -
+so never write that one to the board.
 
-token 只在記憶體中處理，不會存檔、不會完整印出。
-寫入板子需要 pyserial（pip install pyserial）；只驗證不需要。
+The token is only held in memory: it is never saved to disk or printed in full.
+Writing to the board needs pyserial (pip install pyserial); verifying does not.
 """
 
 import argparse
@@ -43,9 +44,9 @@ API_BODY = {
     "messages": [{"role": "user", "content": "hi"}],
 }
 
-# USB 轉序列晶片：CH9102 / CH340 (1A86)、CP210x (10C4)
+# USB-serial chips: CH9102 / CH340 (1A86), CP210x (10C4)
 BOARD_VIDS = {0x1A86, 0x10C4}
-BOARD_PIDS_EXCLUDE = {0x5722}   # 1A86:5722 是 USB 副螢幕，不是開發板
+BOARD_PIDS_EXCLUDE = {0x5722}   # 1A86:5722 is a USB display adapter, not a dev board
 
 SYSTEM = platform.system()      # "Windows" / "Darwin" / "Linux"
 OS_NAME = {"Windows": "Windows", "Darwin": "macOS", "Linux": "Linux"}.get(SYSTEM, SYSTEM)
@@ -56,10 +57,10 @@ def mask(tok):
 
 
 # --------------------------------------------------------------------------- #
-#  驗證 token：送 1 token 的請求，讀 rate-limit 標頭
+#  Verify a token: send a 1-token request and read the rate-limit headers
 # --------------------------------------------------------------------------- #
 def check_token(tok):
-    """回傳 (成功?, 說明)"""
+    """Return (ok?, message)"""
     req = urllib.request.Request(
         API_URL, data=json.dumps(API_BODY).encode(),
         headers=dict(API_HEADERS, Authorization=f"Bearer {tok}"), method="POST")
@@ -67,23 +68,23 @@ def check_token(tok):
         with urllib.request.urlopen(req, timeout=20) as resp:
             hdrs = resp.headers
     except urllib.error.HTTPError as e:
-        hdrs = e.headers   # 429 等錯誤回應仍帶有 rate-limit 標頭
+        hdrs = e.headers   # error responses such as 429 still carry the rate-limit headers
         if e.code in (401, 403):
-            return False, f"HTTP {e.code}：token 無效或已過期"
+            return False, f"HTTP {e.code}: token is invalid or expired"
     except urllib.error.URLError as e:
         if "CERTIFICATE_VERIFY_FAILED" in str(e) and SYSTEM == "Darwin":
-            return False, ("SSL 憑證驗證失敗：請執行 /Applications/Python 3.x/"
-                           "Install Certificates.command 後再試")
-        return False, f"連線失敗：{e.reason}"
+            return False, ("SSL certificate verification failed: run /Applications/Python 3.x/"
+                           "Install Certificates.command and try again")
+        return False, f"Connection failed: {e.reason}"
     except Exception as e:
-        return False, f"連線失敗：{e}"
+        return False, f"Connection failed: {e}"
 
     s = hdrs.get("anthropic-ratelimit-unified-5h-utilization")
     w = hdrs.get("anthropic-ratelimit-unified-7d-utilization")
     if s is None:
-        return False, "回應中沒有 rate-limit 標頭（不是 Claude 訂閱帳號的 token？）"
+        return False, "No rate-limit headers in the response (not a Claude subscription token?)"
     pct = lambda v: f"{round(float(v) * 100)}%" if v else "n/a"
-    return True, f"5 小時 {pct(s)}、每週 {pct(w)}"
+    return True, f"5-hour {pct(s)}, weekly {pct(w)}"
 
 
 # --------------------------------------------------------------------------- #
@@ -93,7 +94,7 @@ def find_claude():
     exe = shutil.which("claude")
     if exe:
         return exe
-    # 常見安裝位置（PATH 沒設好時）
+    # Common install locations (in case PATH isn't set up)
     home = Path.home()
     for p in [home / ".claude" / "local" / "claude",
               home / ".local" / "bin" / "claude",
@@ -110,41 +111,41 @@ def find_claude():
 def run_setup_token():
     exe = find_claude()
     if not exe:
-        print("找不到 claude 指令。請先安裝 Claude Code，或在任一終端機手動執行 "
-              "`claude setup-token`，再用 --skip-setup 貼上 token。")
+        print("The claude command was not found. Install Claude Code first, or run "
+              "`claude setup-token` yourself in any terminal and paste the token with --skip-setup.")
         return False
-    print("\n即將執行 `claude setup-token`：")
-    print("  1. 瀏覽器會開啟 Claude 登入頁，登入並授權")
-    print("  2. 完成後終端機會印出一串 sk-ant-oat 開頭的 token，把它整串複製起來")
-    print("  3. 回到這裡貼上\n")
-    input("按 Enter 開始…")
+    print("\nAbout to run `claude setup-token`:")
+    print("  1. A browser opens the Claude login page - log in and authorize")
+    print("  2. When done, the terminal prints a token starting with sk-ant-oat - copy all of it")
+    print("  3. Come back here and paste it\n")
+    input("Press Enter to start...")
     try:
         subprocess.run([exe, "setup-token"])
     except OSError as e:
-        print(f"無法執行 {exe}：{e}")
+        print(f"Could not run {exe}: {e}")
         return False
     return True
 
 
 def ask_token():
     print()
-    tok = getpass.getpass("貼上 token（輸入不會顯示，貼上後按 Enter）: ").strip()
-    tok = re.sub(r"\s+", "", tok)   # 終端機換行可能把長 token 斷成多段
+    tok = getpass.getpass("Paste the token (input is hidden), then press Enter: ").strip()
+    tok = re.sub(r"\s+", "", tok)   # the terminal may wrap a long token into several pieces
     if not tok:
-        sys.exit("沒有輸入 token")
+        sys.exit("No token entered")
     if not tok.startswith("sk-ant-oat"):
-        print("警告：setup-token 產生的 token 通常以 sk-ant-oat 開頭，請確認有整串複製")
+        print("Warning: setup-token tokens usually start with sk-ant-oat - make sure you copied all of it")
     return tok
 
 
 # --------------------------------------------------------------------------- #
-#  寫入板子（序列埠）
+#  Write to the board (serial)
 # --------------------------------------------------------------------------- #
 def find_port():
     from serial.tools import list_ports
     ports = [p for p in list_ports.comports()
              if p.vid in BOARD_VIDS and p.pid not in BOARD_PIDS_EXCLUDE]
-    # macOS 同一個裝置有 /dev/cu.* 與 /dev/tty.*，用 cu
+    # macOS lists the same device as /dev/cu.* and /dev/tty.*; use cu
     ports.sort(key=lambda p: "/dev/tty." in p.device)
     return ports[0].device if ports else None
 
@@ -153,35 +154,35 @@ def write_to_board(tok, port_arg):
     try:
         import serial
     except ImportError:
-        print("寫入板子需要 pyserial：" +
+        print("Writing to the board needs pyserial: " +
               ("pip install pyserial" if SYSTEM == "Windows" else "python3 -m pip install pyserial"))
         return False
 
     port = port_arg or find_port()
     if not port:
-        print("找不到開發板的序列埠，請確認 USB 線已接上，或用 --port 指定。")
+        print("Could not find the board's serial port. Check the USB cable, or pass --port.")
         if SYSTEM == "Darwin":
-            print("macOS 若看不到 /dev/cu.wchusbserial* 或 /dev/cu.usbserial*，需要安裝 WCH CH34x/CH9102 驅動。")
+            print("On macOS, if there's no /dev/cu.wchusbserial* or /dev/cu.usbserial*, install the WCH CH34x/CH9102 driver.")
         elif SYSTEM == "Linux":
-            print("Linux 裝置通常是 /dev/ttyACM0 或 /dev/ttyUSB0。")
+            print("On Linux the device is usually /dev/ttyACM0 or /dev/ttyUSB0.")
         return False
 
     ser = serial.Serial()
     ser.port = port
     ser.baudrate = 115200
     ser.timeout = 0.2
-    ser.dtr = False   # 開埠時不要拉 DTR/RTS，否則 ESP32 會被重置
+    ser.dtr = False   # don't assert DTR/RTS when opening, or the ESP32 resets
     ser.rts = False
     try:
         ser.open()
     except Exception as e:
-        print(f"無法開啟 {port}：{e}")
+        print(f"Could not open {port}: {e}")
         if SYSTEM == "Windows":
-            print("若 start_bridge.bat 正在執行，它會占用序列埠，請先關掉它的視窗。")
+            print("If start_bridge.bat is running it holds the serial port - close its window first.")
         elif SYSTEM == "Linux" and "ermission" in str(e):
-            print("沒有序列埠權限：sudo usermod -aG dialout $USER，登出再登入後重試。")
+            print("No permission for the serial port: sudo usermod -aG dialout $USER, then log out and back in.")
         else:
-            print("若 usage_bridge.py 正在執行，它會占用序列埠，請先關掉它。")
+            print("If usage_bridge.py is running it holds the serial port - stop it first.")
         return False
 
     def wait_line(want, timeout):
@@ -193,21 +194,21 @@ def write_to_board(tok, port_arg):
         return None
 
     try:
-        wait_line("ready", 2.5)   # 開埠時板子可能重開機，先等它
+        wait_line("ready", 2.5)   # the board may reboot when the port opens; wait for it
         ser.reset_input_buffer()
         ser.write((json.dumps({"cfg": {"token": tok}}, separators=(",", ":")) + "\n").encode())
         ok = wait_line("cfg ok", 5) is not None
     finally:
         ser.close()
     if ok:
-        print(f"已寫入板子（{port}），板子重新啟動中")
+        print(f"Written to the board ({port}); the board is restarting")
     else:
-        print("板子沒有回應，請確認韌體已更新、連接埠正確")
+        print("The board did not respond - check that the firmware is up to date and the port is correct")
     return ok
 
 
 # --------------------------------------------------------------------------- #
-#  這台電腦 Claude Code 的登入 token
+#  This computer's Claude Code login token
 # --------------------------------------------------------------------------- #
 def _credential_files():
     if override := os.environ.get("CLAUDE_CREDENTIALS_PATH"):
@@ -227,7 +228,7 @@ def _credential_files():
 
 
 def _keychain_blob():
-    """macOS：Claude Code 把登入資料存在鑰匙圈的 "Claude Code-credentials"。"""
+    """macOS: Claude Code stores its login in the Keychain item "Claude Code-credentials"."""
     try:
         r = subprocess.run(["security", "find-generic-password", "-s",
                             "Claude Code-credentials", "-w"],
@@ -251,11 +252,11 @@ def _parse_credentials(blob):
 
 
 def read_local_credentials():
-    """回傳 (來源說明, 憑證 dict) 或 (None, None)"""
+    """Return (source description, credential dict) or (None, None)"""
     if SYSTEM == "Darwin":
         blob = _keychain_blob()
         if blob and (cred := _parse_credentials(blob)):
-            return "macOS 鑰匙圈 (Claude Code-credentials)", cred
+            return "macOS Keychain (Claude Code-credentials)", cred
     for path in _credential_files():
         try:
             blob = path.read_text(encoding="utf-8")
@@ -269,55 +270,55 @@ def read_local_credentials():
 def show_local():
     src, cred = read_local_credentials()
     if not cred:
-        print("找不到這台電腦的 Claude Code 登入資料，請先執行 claude 並登入。")
+        print("No Claude Code login found on this computer - run claude and log in first.")
         if SYSTEM == "Darwin":
-            print("（macOS 會跳出鑰匙圈存取確認，請選「允許」）")
+            print("(macOS will ask whether to allow Keychain access - choose \"Allow\")")
         return 1
     tok = cred["accessToken"]
-    print(f"系統     : {OS_NAME}")
-    print(f"來源     : {src}")
-    print(f"token    : {mask(tok)}")
+    print(f"System       : {OS_NAME}")
+    print(f"Source       : {src}")
+    print(f"Token        : {mask(tok)}")
     if cred.get("subscriptionType"):
-        print(f"訂閱     : {cred['subscriptionType']}")
+        print(f"Subscription : {cred['subscriptionType']}")
     if isinstance(cred.get("expiresAt"), (int, float)):
         left = cred["expiresAt"] / 1000 - time.time()
         exp = time.strftime("%Y-%m-%d %H:%M", time.localtime(cred["expiresAt"] / 1000))
-        print(f"到期     : {exp}（" + (f"還有 {int(left // 3600)} 小時 {int(left % 3600 // 60)} 分" if left > 0 else "已過期，執行一次 claude 會自動續期") + "）")
+        print(f"Expires      : {exp} (" + (f"{int(left // 3600)} h {int(left % 3600 // 60)} min left" if left > 0 else "expired - running claude once refreshes it") + ")")
     ok, msg = check_token(tok)
-    print(f"查詢測試 : {'OK' if ok else '失敗'} - {msg}")
-    print("\n這是 USB 模式 (usage_bridge.py) 用的 token，會自動續期；"
-          "不要寫進板子，WiFi 模式請用 setup-token。")
+    print(f"Query test   : {'OK' if ok else 'FAILED'} - {msg}")
+    print("\nThis is the token USB mode (usage_bridge.py) uses; it refreshes automatically. "
+          "Don't write it to the board - use setup-token for WiFi mode.")
     return 0 if ok else 1
 
 
 # --------------------------------------------------------------------------- #
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--port", help="序列埠，例如 COM3、/dev/cu.wchusbserial110、/dev/ttyACM0")
-    ap.add_argument("--no-write", action="store_true", help="只取得並驗證，不寫入板子")
-    ap.add_argument("--skip-setup", action="store_true", help="不執行 claude setup-token，直接貼上")
-    ap.add_argument("--local", action="store_true", help="查看這台電腦 Claude Code 的登入 token")
+    ap.add_argument("--port", help="serial port, e.g. COM3, /dev/cu.wchusbserial110, /dev/ttyACM0")
+    ap.add_argument("--no-write", action="store_true", help="only get and verify, don't write to the board")
+    ap.add_argument("--skip-setup", action="store_true", help="don't run claude setup-token, paste a token directly")
+    ap.add_argument("--local", action="store_true", help="show this computer's Claude Code login token")
     args = ap.parse_args()
 
     if args.local:
         sys.exit(show_local())
 
-    print(f"== 取得板子用的 Claude token（{OS_NAME}）==")
+    print(f"== Get a Claude token for the board ({OS_NAME}) ==")
     if not args.skip_setup and not run_setup_token():
         sys.exit(1)
     tok = ask_token()
 
-    print("驗證中…")
+    print("Verifying...")
     ok, msg = check_token(tok)
-    print(("OK - " if ok else "失敗 - ") + msg)
+    print(("OK - " if ok else "FAILED - ") + msg)
     if not ok:
-        sys.exit("token 無法使用，沒有寫入板子")
+        sys.exit("The token can't be used; nothing was written to the board")
 
     if args.no_write:
-        print("已驗證（--no-write：未寫入板子）")
+        print("Verified (--no-write: not written to the board)")
         return
     if not write_to_board(tok, args.port):
-        print("稍後可用 python get_token.py --skip-setup 重新寫入")
+        print("You can write it again later with: python get_token.py --skip-setup")
         sys.exit(1)
 
 
@@ -325,5 +326,5 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n已取消")
+        print("\nCancelled")
         sys.exit(130)

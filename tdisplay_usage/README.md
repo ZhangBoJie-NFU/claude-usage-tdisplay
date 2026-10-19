@@ -1,9 +1,9 @@
 # tdisplay_usage
 
-T-Display 用量顯示器的韌體與電腦端程式：
+Firmware and computer-side programs for the T-Display usage display:
 
-- `firmware/` 韌體（PlatformIO）
-- `usage_bridge.py` / `start_bridge.bat` USB 模式的電腦端程式
-- `provision.py` 經 USB 設定 WiFi / token、查看板子狀態
+- `firmware/` firmware (PlatformIO)
+- `usage_bridge.py` / `start_bridge.bat` computer-side program for USB mode
+- `provision.py` set WiFi / token over USB and show the board status
 
-完整說明見上一層的 [README.md](../README.md)。
+See [README.md](../README.md) one level up for the full documentation.

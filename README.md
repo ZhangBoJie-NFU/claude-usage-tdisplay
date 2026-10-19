@@ -1,88 +1,89 @@
-# Claude Code 用量顯示器（LILYGO T-Display V1.1 + Clawd 外殼）
+# Claude Code Usage Display (LILYGO T-Display V1.1 + Clawd enclosure)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-3ecf8e.svg)](LICENSE)
 
-把 Claude Code 的 **5 小時 session 用量** 和 **每週用量** 即時顯示在 LILYGO T-Display V1.1
-的小螢幕上，再把開發板裝進 Clawd（Claude 吉祥物）3D 列印模型的眼睛位置。
+Shows your Claude Code **5-hour session usage** and **weekly usage** live on the small screen of a
+LILYGO T-Display V1.1, with the board mounted in the eye area of a 3D-printed Clawd (the Claude mascot).
 
 ```
-USB  模式（預設）: usage_bridge.py (電腦) ──USB 序列埠──> T-Display
-WiFi 模式        : T-Display ──WiFi，每 60 秒──> api.anthropic.com     （USB 只供電）
+USB  mode (default): usage_bridge.py (computer) ──USB serial──> T-Display
+WiFi mode          : T-Display ──WiFi, every 60 s──> api.anthropic.com     (USB for power only)
 ```
 
-## 成果展示
+## Showcase
 
 <p align="center">
-  <img src="img/showcase-front.jpg" width="49%" alt="裝在 Clawd 外殼中的 T-Display，WiFi 模式顯示 5 小時與每週用量">
-  <img src="img/showcase-desk.jpg" width="49%" alt="放在鍵盤前方的成品">
+  <img src="img/showcase-front.jpg" width="49%" alt="T-Display mounted in the Clawd enclosure, showing 5-hour and weekly usage in WiFi mode">
+  <img src="img/showcase-desk.jpg" width="49%" alt="The finished build sitting in front of a keyboard">
 </p>
 
-T-Display 嵌在 3D 列印的 Clawd 眼睛位置，USB-C 線從右側槽口接出，WiFi 模式下只需供電。
-螢幕上方是 5 小時 session 用量（7%，1 小時 07 分後重置），下方是每週用量（73%，2 天 6 小時後重置）。
+The T-Display sits in the eye area of the 3D-printed Clawd, with the USB-C cable leaving through a slot on
+the right side; in WiFi mode it only needs power. The top of the screen shows the 5-hour session usage
+(7%, resets in 1 h 07 min), the bottom shows the weekly usage (73%, resets in 2 days 6 h).
 
-## 目錄
+## Contents
 
-- [成果展示](#成果展示)
-- [硬體與軟體需求](#硬體與軟體需求)
-- [資料夾內容](#資料夾內容)
-- [畫面與按鈕](#畫面與按鈕)
-- [WiFi 模式](#wifi-模式)
-- [取得 Claude token（Windows / macOS / Linux）](#取得-claude-tokenwindows--macos--linux)
-- [USB 模式](#usb-模式)
-- [用量資料從哪裡來](#用量資料從哪裡來)
-- [燒錄韌體](#燒錄韌體)
-- [還原原本的韌體](#還原原本的韌體)
-- [3D 列印外殼](#3d-列印外殼)
-- [疑難排解](#疑難排解)
-- [來源與授權](#來源與授權)
+- [Showcase](#showcase)
+- [Hardware and software requirements](#hardware-and-software-requirements)
+- [Repository layout](#repository-layout)
+- [Screen and buttons](#screen-and-buttons)
+- [WiFi mode](#wifi-mode)
+- [Getting a Claude token (Windows / macOS / Linux)](#getting-a-claude-token-windows--macos--linux)
+- [USB mode](#usb-mode)
+- [Where the usage data comes from](#where-the-usage-data-comes-from)
+- [Flashing the firmware](#flashing-the-firmware)
+- [Restoring the original firmware](#restoring-the-original-firmware)
+- [3D-printed enclosure](#3d-printed-enclosure)
+- [Troubleshooting](#troubleshooting)
+- [Credits and license](#credits-and-license)
 
-## 硬體與軟體需求
+## Hardware and software requirements
 
-| 項目 | 說明 |
+| Item | Details |
 |---|---|
-| 開發板 | LILYGO T-Display V1.1（ESP32、1.14 吋 ST7789 135×240） |
-| 連接埠 | Windows 為 `COMx`（本文以 COM3 為例）、macOS 為 `/dev/cu.wchusbserial*`、Linux 為 `/dev/ttyACM0` |
-| Python | 3.11，需要 `pip install pyserial`（macOS / Linux 用 `python3 -m pip install pyserial`） |
-| Claude Code | 已安裝並登入（`claude` 指令），取得 token 時會用到 |
-| 韌體編譯 | PlatformIO（`pip install platformio`），平台 espressif32@6.9.0 |
-| 韌體函式庫 | TFT_eSPI 2.5.43、ArduinoJson 7.2.1（PlatformIO 會自動下載） |
-| 3D 模型產生 | `pip install numpy manifold3d matplotlib`（只有要重新產生模型時才需要） |
-| 3D 列印 | Bambu Studio 開啟產生的 `3D/Clawd_TDisplay.3mf`（見 [3D 列印外殼](#3d-列印外殼)） |
+| Board | LILYGO T-Display V1.1 (ESP32, 1.14" ST7789 135×240) |
+| Serial port | Windows: `COMx` (this guide uses COM3 as the example), macOS: `/dev/cu.wchusbserial*`, Linux: `/dev/ttyACM0` |
+| Python | 3.11, needs `pip install pyserial` (macOS / Linux: `python3 -m pip install pyserial`) |
+| Claude Code | Installed and logged in (`claude` command); needed to get a token |
+| Firmware build | PlatformIO (`pip install platformio`), platform espressif32@6.9.0 |
+| Firmware libraries | TFT_eSPI 2.5.43, ArduinoJson 7.2.1 (downloaded automatically by PlatformIO) |
+| 3D model generation | `pip install numpy manifold3d matplotlib` (only needed to regenerate the model) |
+| 3D printing | Open the generated `3D/Clawd_TDisplay.3mf` in Bambu Studio (see [3D-printed enclosure](#3d-printed-enclosure)) |
 
-## 資料夾內容
+## Repository layout
 
 ```
 token/
-  get_token.py             取得 token、驗證、寫進板子（三個系統共用）
-  get_token_windows.bat    Windows 雙擊執行
-  get_token_macos.command  macOS 在 Finder 雙擊執行
-  get_token_linux.sh       Linux 執行
+  get_token.py             Get a token, verify it, write it to the board (shared by all three OSes)
+  get_token_windows.bat    Windows: double-click to run
+  get_token_macos.command  macOS: double-click in Finder to run
+  get_token_linux.sh       Linux: run from a terminal
 
 tdisplay_usage/
-  usage_bridge.py        USB 模式：電腦端查詢用量並經序列埠傳給板子
-  start_bridge.bat       雙擊執行 usage_bridge.py
-  provision.py           經 USB 把 WiFi / token 寫進板子、查看狀態
+  usage_bridge.py        USB mode: the computer queries usage and sends it to the board over serial
+  start_bridge.bat       Double-click to run usage_bridge.py
+  provision.py           Write WiFi / token to the board over USB, show board status
   firmware/
-    platformio.ini       PlatformIO 設定（板子腳位、序列埠）
-    src/main.cpp         韌體主程式
-    src/root_ca.h        HTTPS 用的 Google Trust Services 根憑證
-  backup/                燒錄前自己備份的原廠韌體（不在 repo 裡，見「還原原本的韌體」）
+    platformio.ini       PlatformIO config (board pins, serial port)
+    src/main.cpp         Main firmware
+    src/root_ca.h        Google Trust Services root certificates for HTTPS
+  backup/                Your own backup of the factory firmware (not in the repo, see "Restoring the original firmware")
 
-img/                           成果展示照片
+img/                           Showcase photos
 
 3D/
-  Claude.3mf                   Clawd 原始模型（授權不允許轉發，需自行下載，見下方）
-  TTGO_-_Tdisplay_lid.3mf      T-Display 外殼原始模型（CC0）
-  build_clawd_tdisplay.py      把兩者合併的腳本
-  Clawd_TDisplay.3mf           合併後的成品（執行腳本後產生），直接拿去切片
-  Clawd_TDisplay_preview.png   組裝示意圖
+  Claude.3mf                   Original Clawd model (license forbids redistribution; download it yourself, see below)
+  TTGO_-_Tdisplay_lid.3mf      Original T-Display enclosure model (CC0)
+  build_clawd_tdisplay.py      Script that merges the two
+  Clawd_TDisplay.3mf           Merged result (generated by the script), ready to slice
+  Clawd_TDisplay_preview.png   Assembly preview
 ```
 
-## 畫面與按鈕
+## Screen and buttons
 
 ```
 ┌────────────────────────────────────────┐
-│ Claude Code usage          [圖示] 14:32 │
+│ Claude Code usage          [icon] 14:32 │
 ├────────────────────────────────────────┤
 │ 5h session                         4%  │
 │ reset 3h 12m                           │
@@ -94,134 +95,137 @@ img/                           成果展示照片
 └────────────────────────────────────────┘
 ```
 
-- **上方區塊**：5 小時 session 用量與距離重置的時間
-- **下方區塊**：每週用量與距離重置的時間
-- **顏色**：綠色 < 70%、橘色 < 90%、紅色 ≥ 90%
-- **右上角**：時鐘，左邊是目前模式的圖示（USB-C 接口 = USB 模式、WiFi 扇形 = WiFi 模式）。
-  圖示**白色**表示連線正常、資料是新的；**灰色**表示未連線或資料過期
-- **底部狀態列**：最後更新時間；超過 3 分鐘沒更新會以紅字顯示原因；
-  快到上限顯示 `approaching limit`，已達上限顯示 `LIMIT REACHED`
+- **Top block**: 5-hour session usage and time until it resets
+- **Bottom block**: weekly usage and time until it resets
+- **Colors**: green < 70%, orange < 90%, red ≥ 90%
+- **Top right**: clock, with the current mode's icon to its left (USB-C port = USB mode, WiFi fan = WiFi mode).
+  A **white** icon means the connection is fine and the data is fresh; **grey** means not connected or stale data
+- **Bottom status line**: time since the last update; if there has been no update for more than 3 minutes
+  the reason is shown in red; near the limit it shows `approaching limit`, at the limit `LIMIT REACHED`
 
-| 按鈕 | 動作 |
+| Button | Action |
 |---|---|
-| **左鍵**（GPIO0） | 開關背光 |
-| **右鍵**（GPIO35）短按 | 切換 USB / WiFi 模式（放開時切換） |
-| **右鍵**長按 5 秒 | 清除 WiFi 設定並顯示設定用 QR code（按住時畫面底部會倒數） |
+| **Left button** (GPIO0) | Toggle the backlight |
+| **Right button** (GPIO35) short press | Switch between USB / WiFi mode (switches on release) |
+| **Right button** hold for 5 s | Clear the WiFi settings and show the setup QR code (a countdown appears at the bottom while holding) |
 
-出廠預設為 USB 模式；之後板子會記住最後選的模式，重新開機也一樣。
+The factory default is USB mode; after that the board remembers the last selected mode, including across reboots.
 
-## WiFi 模式
+## WiFi mode
 
-板子自己連上 WiFi，每 60 秒查詢一次，電腦不用開，USB 線只負責供電。
-WiFi 帳密和 token 存在板子的 NVS（內部儲存），不在原始碼裡。
+The board connects to WiFi by itself and queries every 60 seconds. The computer can stay off; the USB cable
+only provides power. The WiFi credentials and the token are stored in the board's NVS (internal storage),
+not in the source code.
 
-WiFi 模式需要兩樣東西：**WiFi 設定** 和 **Claude token**。
+WiFi mode needs two things: **WiFi settings** and a **Claude token**.
 
-### 1. 設定 WiFi：用手機掃 QR code
+### 1. Set up WiFi: scan a QR code with your phone
 
-板子還沒有 WiFi 設定時，切到 WiFi 模式就會自動進入設定畫面；
-已經設定過、要換新網路時，**長按右鍵 5 秒**。
+If the board has no WiFi settings yet, switching to WiFi mode opens the setup screen automatically.
+If it is already set up and you want to move to a new network, **hold the right button for 5 seconds**.
 
-1. 畫面先顯示 `Scanning WiFi...`，幾秒後左邊出現 QR code，右邊顯示熱點名稱
-   `ClaudeUsage-XXXX`、熱點密碼與 `192.168.4.1`
-2. 用手機相機掃 QR code → 加入熱點（熱點密碼每次隨機產生，已包含在 QR code 裡）
-3. 手機連上後，板子上的 `Scan with phone` 會變成綠色的 `Phone connected`
-4. 手機通常會自動跳出設定頁（Android 可能是「登入網路」通知，點它即可）；
-   沒有的話用瀏覽器開 **`http://192.168.4.1`**。若手機提示「無法連上網際網路」，選擇保持連線
-5. 在清單中點選要連接的 WiFi（名稱會自動填入），輸入 **WiFi 密碼**
-6. Claude token 欄位**選填**：留空表示保留板子上原本的 token
-7. 按「**儲存並連線**」→ 板子重新開機並連線，10–20 秒後顯示用量
-8. 手機切回原本的 WiFi
+1. The screen first shows `Scanning WiFi...`; a few seconds later a QR code appears on the left, and the
+   hotspot name `ClaudeUsage-XXXX`, the hotspot password and `192.168.4.1` appear on the right
+2. Scan the QR code with your phone camera → join the hotspot (the hotspot password is random each time and is included in the QR code)
+3. Once the phone is connected, `Scan with phone` on the board turns into a green `Phone connected`
+4. The phone usually opens the setup page automatically (on Android it may be a "Sign in to network"
+   notification — tap it); if not, open **`http://192.168.4.1`** in a browser. If the phone warns that the
+   network has no internet access, choose to stay connected
+5. Tap the WiFi network you want in the list (the name is filled in automatically) and enter the **WiFi password**
+6. The **Claude token (optional)** field can be left empty to keep the token already on the board
+7. Tap "**Save and connect**" → the board reboots and connects, and shows usage after 10–20 seconds
+8. Switch your phone back to your normal WiFi
 
-注意：
+Notes:
 
-- 掃 QR code 只是讓手機加入板子的熱點，**不會**自動帶入手機正在用的 WiFi，
-  WiFi 名稱要在清單點選、密碼要自己輸入
-- 只支援 **2.4GHz** WiFi；5GHz 的網路不會出現在清單裡
-- 設定頁的清單是開熱點前掃描的結果，找不到網路可以按「重新掃描」，或直接手動輸入名稱
-- 在設定畫面短按右鍵會切回 USB 模式
+- Scanning the QR code only joins your phone to the board's hotspot; it does **not** transfer the WiFi your
+  phone is currently using. You pick the network from the list and type the password yourself
+- Only **2.4 GHz** WiFi is supported; 5 GHz networks do not appear in the list
+- The list on the setup page is scanned before the hotspot starts; if your network is missing, tap
+  "Rescan" or type the name manually
+- A short press of the right button on the setup screen switches back to USB mode
 
-### 1'. 設定 WiFi：用電腦（USB）
+### 1'. Set up WiFi from a computer (USB)
 
 ```
 cd tdisplay_usage
-python provision.py --wifi "WiFi名稱" "WiFi密碼"
+python provision.py --wifi "WiFi name" "WiFi password"
 ```
 
-### 2. 設定 Claude token（只需一次）
+### 2. Set the Claude token (once)
 
-用 `token/` 資料夾的程式最簡單，見下一節
-[取得 Claude token](#取得-claude-tokenwindows--macos--linux)。它會執行 `claude setup-token`、
-驗證 token，然後直接寫進板子。
+The easiest way is the program in the `token/` folder, see the next section
+[Getting a Claude token](#getting-a-claude-token-windows--macos--linux). It runs `claude setup-token`,
+verifies the token and writes it straight to the board.
 
-也可以手動做：
+You can also do it by hand:
 
 ```
-claude setup-token                 # 瀏覽器登入，產生板子專用的長期 token
+claude setup-token                 # log in in the browser; creates a long-lived token for the board
 cd tdisplay_usage
-python provision.py --token        # 貼上上一步的 token（輸入時不會顯示）
+python provision.py --token        # paste the token from the previous step (input is hidden)
 ```
 
-或在手機設定頁的 token 欄位貼上。長按右鍵重設 WiFi **不會**清掉 token。
+Or paste it into the token field of the phone setup page. Resetting WiFi with a long press does **not** clear the token.
 
-### 檢查狀態
+### Checking the status
 
 ```
 cd tdisplay_usage
 python provision.py --status
 ```
 
-回傳一行 JSON（不含 token），例如：
+Returns one line of JSON (without the token), for example:
 
 ```json
 {"mode":"wifi","ssid":"MyWiFi","portal":false,"wifi_status":3,"ip":"192.168.1.50",
  "rssi":-41,"token_set":true,"time_ok":true,"last_http":200,"err":"","data":true,"s":4,"w":72,"age_s":9}
 ```
 
-| 欄位 | 意義 |
+| Field | Meaning |
 |---|---|
 | `mode` | `wifi` / `usb` |
-| `portal` | `true` = 正在顯示 QR code 設定畫面 |
-| `wifi_status` | `3` 已連線、`1` 找不到 SSID、`4` 連線失敗、`6` 未連線 |
-| `token_set` | 板子上是否有 token |
-| `time_ok` | NTP 對時是否完成（HTTPS 驗證憑證需要正確時間） |
-| `last_http` | 最近一次查詢的 HTTP 狀態碼（200 = 正常） |
-| `s` / `w` | 5 小時 / 每週用量百分比 |
-| `age_s` | 資料是幾秒前取得的 |
+| `portal` | `true` = the QR code setup screen is showing |
+| `wifi_status` | `3` connected, `1` SSID not found, `4` connection failed, `6` disconnected |
+| `token_set` | Whether the board has a token |
+| `time_ok` | Whether NTP time sync has completed (HTTPS certificate validation needs the correct time) |
+| `last_http` | HTTP status code of the latest query (200 = OK) |
+| `s` / `w` | 5-hour / weekly usage in percent |
+| `age_s` | How many seconds ago the data was fetched |
 
-其他指令：`python provision.py --clear-wifi` 清除板子上的 WiFi 帳密（效果同長按右鍵）。
+Other command: `python provision.py --clear-wifi` clears the WiFi credentials on the board (same as the long press).
 
-## 取得 Claude token（Windows / macOS / Linux）
+## Getting a Claude token (Windows / macOS / Linux)
 
-`token/get_token.py` 是三個系統共用的程式，各系統都有一個啟動檔。
-板子用 USB 接在**執行程式的這台電腦**上，就會自動寫入。
+`token/get_token.py` is a single program shared by all three operating systems, with a launcher for each.
+If the board is connected over USB to **the computer running the program**, the token is written to it automatically.
 
-### 兩種 token 的差別
+### The two kinds of token
 
-| | setup-token（板子用） | Claude Code 登入 token（USB 模式用） |
+| | setup-token (for the board) | Claude Code login token (for USB mode) |
 |---|---|---|
-| 怎麼來 | `claude setup-token` 產生 | 執行 `claude` 登入時自動產生 |
-| 有效期 | 長期 | 幾小時，Claude Code 會自動續期 |
-| 存放位置 | 只存在板子的 NVS | Windows / Linux：`~/.claude/.credentials.json`<br>macOS：鑰匙圈的 `Claude Code-credentials` |
-| 用途 | **WiFi 模式**，寫進板子 | **USB 模式**，`usage_bridge.py` 自動讀取 |
+| Where it comes from | Created by `claude setup-token` | Created automatically when you log in with `claude` |
+| Lifetime | Long-lived | A few hours; Claude Code renews it automatically |
+| Stored in | Only in the board's NVS | Windows / Linux: `~/.claude/.credentials.json`<br>macOS: Keychain item `Claude Code-credentials` |
+| Used for | **WiFi mode**, written to the board | **USB mode**, read automatically by `usage_bridge.py` |
 
-**不要**把 Claude Code 的登入 token 寫進板子：它很快過期，而且板子若自行續期，
-會讓電腦上的 Claude Code 被登出。
+Do **not** write the Claude Code login token to the board: it expires quickly, and if the board renewed it
+by itself, Claude Code on your computer would be logged out.
 
 ### Windows
 
-1. 板子用 USB 接上電腦；若 `start_bridge.bat` 開著，先關掉（它會占用 COM3）
-2. 雙擊 `token\get_token_windows.bat`
-3. 按 Enter → 瀏覽器開啟 Claude 登入頁，登入並授權
-4. 終端機印出 `sk-ant-oat` 開頭的 token，把整串複製起來
-5. 回到視窗貼上（不會顯示），按 Enter
-6. 程式驗證 token（顯示目前 5 小時 / 每週用量），然後寫進板子，板子自動重開機
+1. Connect the board to the computer over USB; if `start_bridge.bat` is open, close it first (it holds COM3)
+2. Double-click `token\get_token_windows.bat`
+3. Press Enter → the browser opens the Claude login page; log in and authorize
+4. The terminal prints a token starting with `sk-ant-oat`; copy the whole string
+5. Go back to the window, paste it (it is not shown) and press Enter
+6. The program verifies the token (showing the current 5-hour / weekly usage), then writes it to the board, which reboots automatically
 
-在命令列加參數：`token\get_token_windows.bat --local`
+To pass options from the command line: `token\get_token_windows.bat --local`
 
 ### macOS
 
-第一次使用先安裝 pyserial、給啟動檔執行權限：
+The first time, install pyserial and make the launcher executable:
 
 ```
 cd token
@@ -229,189 +233,189 @@ python3 -m pip install pyserial
 chmod +x get_token_macos.command
 ```
 
-之後在 Finder 雙擊 `get_token_macos.command`（或在終端機執行 `./get_token_macos.command`），
-步驟同 Windows 的 3–6。
+After that, double-click `get_token_macos.command` in Finder (or run `./get_token_macos.command` in a terminal);
+the steps are the same as Windows steps 3–6.
 
-- 板子的序列埠是 `/dev/cu.wchusbserial*` 或 `/dev/cu.usbserial*`；找不到的話要安裝
-  WCH 的 CH34x / CH9102 驅動
-- `--local` 讀取鑰匙圈時，macOS 會詢問是否允許 `security` 存取，選「允許」
-- 若驗證時出現 SSL 憑證錯誤，執行 `/Applications/Python 3.x/Install Certificates.command`
+- The board's serial port is `/dev/cu.wchusbserial*` or `/dev/cu.usbserial*`; if it does not show up,
+  install the WCH CH34x / CH9102 driver
+- When `--local` reads the Keychain, macOS asks whether to allow `security` access; choose "Allow"
+- If verification fails with an SSL certificate error, run `/Applications/Python 3.x/Install Certificates.command`
 
 ### Linux
 
 ```
 cd token
-python3 -m pip install pyserial        # 或用套件管理員安裝 python3-serial
+python3 -m pip install pyserial        # or install python3-serial with your package manager
 chmod +x get_token_linux.sh
 ./get_token_linux.sh
 ```
 
-步驟同 Windows 的 3–6。
+The steps are the same as Windows steps 3–6.
 
-- 板子的序列埠通常是 `/dev/ttyACM0` 或 `/dev/ttyUSB0`
-- 出現序列埠權限錯誤時：`sudo usermod -aG dialout $USER`，登出再登入
+- The board's serial port is usually `/dev/ttyACM0` or `/dev/ttyUSB0`
+- On a serial port permission error: `sudo usermod -aG dialout $USER`, then log out and back in
 
-### 參數
+### Options
 
-三個啟動檔都可以加以下參數（等同 `python get_token.py ...`）：
+All three launchers accept these options (same as `python get_token.py ...`):
 
-| 參數 | 說明 |
+| Option | Description |
 |---|---|
-| （無） | 執行 `claude setup-token` → 貼上 → 驗證 → 寫入板子 |
-| `--skip-setup` | 已經有 setup-token 產生的 token，直接貼上（例如之前寫入失敗，要重寫） |
-| `--no-write` | 只取得並驗證，不寫入板子（板子沒接在這台電腦時，之後可在手機設定頁貼上） |
-| `--local` | 查看這台電腦 Claude Code 的登入 token：來源、遮蔽後的 token、訂閱類型、到期時間、查詢測試 |
-| `--port 埠名` | 指定序列埠，例如 `COM3`、`/dev/cu.wchusbserial110`、`/dev/ttyACM0` |
+| (none) | Run `claude setup-token` → paste → verify → write to the board |
+| `--skip-setup` | You already have a token from setup-token; just paste it (e.g. to retry after a failed write) |
+| `--no-write` | Only get and verify, do not write to the board (if the board is not connected to this computer, paste it later on the phone setup page) |
+| `--local` | Show this computer's Claude Code login token: source, masked token, subscription type, expiry, test query |
+| `--port PORT` | Serial port to use, e.g. `COM3`, `/dev/cu.wchusbserial110`, `/dev/ttyACM0` |
 
-token 只在記憶體中處理，不會存檔，也不會完整印出（只顯示前 14 碼和末 4 碼）。
+The token is only handled in memory: it is never saved to a file and never printed in full (only the first 14 and last 4 characters are shown).
 
-## USB 模式
+## USB mode
 
-由電腦查詢用量，再經 USB 傳給板子。用的是電腦上 Claude Code 的登入
-（Windows / Linux：`~/.claude/.credentials.json`；macOS：鑰匙圈），不需要另外設定 token。
-此模式下板子的 WiFi 關閉。可用 `token/get_token.py --local` 確認電腦上的登入是否有效。
+The computer queries the usage and sends it to the board over USB. It uses the Claude Code login on the
+computer (Windows / Linux: `~/.claude/.credentials.json`; macOS: Keychain), so no separate token is needed.
+The board's WiFi is off in this mode. Use `token/get_token.py --local` to check that the login on the computer is valid.
 
-1. 板子切到 USB 模式（右上角顯示 USB-C 圖示）
-2. 雙擊 `tdisplay_usage/start_bridge.bat`，**視窗保持開著**
-   （macOS / Linux：`python3 tdisplay_usage/usage_bridge.py`）
-3. 視窗每 60 秒顯示一次查詢結果，例如 `[14:32:05] 5h 4%  每週 72%  (allowed)`
+1. Switch the board to USB mode (the USB-C icon shows at the top right)
+2. Double-click `tdisplay_usage/start_bridge.bat` and **keep the window open**
+   (macOS / Linux: `python3 tdisplay_usage/usage_bridge.py`)
+3. The window prints a result every 60 seconds, e.g. `[14:32:05] 5h 4%  weekly 72%  (allowed)`
 
-- `start_bridge.bat` 執行期間會**占用 COM3**；要執行 `provision.py` 或燒錄韌體前，先關掉它的視窗
-- 只想測試查詢、不連板子：`python usage_bridge.py --once`
-- 指定序列埠：`python usage_bridge.py --port COM3`（預設自動偵測 CH9102/CP210x）
-- 板子沒收到資料時顯示 `Waiting for PC...`；電腦查詢失敗時顯示 `Query failed - see PC`，
-  原因看 `start_bridge.bat` 的視窗
+- While `start_bridge.bat` runs it **holds COM3**; close its window before running `provision.py` or flashing firmware
+- To test the query without the board: `python usage_bridge.py --once`
+- To choose the serial port: `python usage_bridge.py --port COM3` (auto-detects CH9102/CP210x by default)
+- If the board receives no data it shows `Waiting for PC...`; if the query on the computer fails it shows
+  `Query failed - see PC` — the reason is in the `start_bridge.bat` window
 
-## 用量資料從哪裡來
+## Where the usage data comes from
 
-不論哪種模式，都是向 `https://api.anthropic.com/v1/messages` 送出一個 **1 token** 的極小請求
-（模型 claude-haiku-4-5），只讀回應中的 rate-limit 標頭：
+In both modes a tiny **1-token** request is sent to `https://api.anthropic.com/v1/messages`
+(model claude-haiku-4-5), and only the rate-limit headers of the response are read:
 
-| 標頭 | 顯示 |
+| Header | Shown as |
 |---|---|
-| `anthropic-ratelimit-unified-5h-utilization` / `-reset` | 5 小時 session 用量 / 重置時間 |
-| `anthropic-ratelimit-unified-7d-utilization` / `-reset` | 每週用量 / 重置時間 |
+| `anthropic-ratelimit-unified-5h-utilization` / `-reset` | 5-hour session usage / reset time |
+| `anthropic-ratelimit-unified-7d-utilization` / `-reset` | Weekly usage / reset time |
 | `anthropic-ratelimit-unified-5h-status` | `allowed` / `allowed_warning` / `rejected` |
 
-- 查詢間隔 60 秒，失敗後 15 秒重試；每次都是真實請求，不建議調得更短
-- 調整位置：韌體 `firmware/src/main.cpp` 的 `POLL_MS` / `RETRY_MS`；
-  電腦端 `usage_bridge.py` 的 `POLL_INTERVAL` / `RETRY_INTERVAL`
-- 時區在 `main.cpp` 的 `TZ_INFO`（預設台灣 `CST-8`）
-- 板子以內建的 Google Trust Services 根憑證（`root_ca.h`）驗證 HTTPS
+- Queries run every 60 seconds and retry after 15 seconds on failure; each one is a real request, so shorter intervals are not recommended
+- Where to change them: `POLL_MS` / `RETRY_MS` in the firmware's `firmware/src/main.cpp`;
+  `POLL_INTERVAL` / `RETRY_INTERVAL` in `usage_bridge.py` on the computer
+- The time zone is `TZ_INFO` in `main.cpp` (default Taiwan, `CST-8`)
+- The board validates HTTPS with the built-in Google Trust Services root certificates (`root_ca.h`)
 
-## 燒錄韌體
+## Flashing the firmware
 
-先關掉 `start_bridge.bat`（會占用 COM3），然後：
+Close `start_bridge.bat` first (it holds COM3), then:
 
 ```
 cd tdisplay_usage/firmware
 python -m platformio run -t upload
 ```
 
-- `platformio.ini` 固定使用 COM3、上傳速度 921600；你的開發板不是 COM3 的話，
-  修改 `upload_port` / `monitor_port`（或刪掉這兩行讓 PlatformIO 自動偵測）
-- 一般燒錄**不會**清掉 NVS，WiFi、token、模式設定都會保留
-- 只編譯不燒錄：`python -m platformio run`
+- `platformio.ini` is fixed to COM3 at 921600 upload speed; if your board is not on COM3,
+  change `upload_port` / `monitor_port` (or delete those two lines to let PlatformIO auto-detect)
+- A normal flash does **not** erase NVS, so WiFi, token and mode settings are kept
+- Build without flashing: `python -m platformio run`
 
-## 還原原本的韌體
+## Restoring the original firmware
 
-建議第一次燒錄前先備份整片 4MB flash（備份含裝置資料，不要上傳到公開的地方；
-`.gitignore` 已排除 `backup/`）：
+Before flashing for the first time, it is a good idea to back up the whole 4 MB flash (the backup contains
+device data, so don't upload it anywhere public; `.gitignore` already excludes `backup/`):
 
 ```
 cd tdisplay_usage
 python -m esptool --port COM3 read-flash 0 0x400000 backup/tdisplay_original_flash.bin
 ```
 
-要還原時：
+To restore:
 
 ```
 python -m esptool --port COM3 write-flash 0 backup/tdisplay_original_flash.bin
 ```
 
-## 3D 列印外殼
+## 3D-printed enclosure
 
-`build_clawd_tdisplay.py` 把 T-Display 外殼嵌進 Clawd 的眼睛位置，輸出 `3D/Clawd_TDisplay.3mf`，
-用 Bambu Studio 開啟切片。
+`build_clawd_tdisplay.py` embeds the T-Display enclosure in Clawd's eye area and writes `3D/Clawd_TDisplay.3mf`,
+which you open and slice in Bambu Studio.
 
-### 先取得 Clawd 模型
+### Get the Clawd model first
 
-Clawd 模型的授權是 MakerWorld Exclusive License，**不允許轉發**，所以本 repo 不含它，
-也不含用它合併出來的 `Clawd_TDisplay.3mf`。請自己下載後產生：
+The Clawd model is under the MakerWorld Exclusive License, which **does not allow redistribution**, so this repo
+does not include it, nor the `Clawd_TDisplay.3mf` merged from it. Download it and generate the file yourself:
 
-1. 到 MakerWorld 搜尋「**Clawd the Claude Code mascot (AMS print-in-place)**」（作者 h2d2），
-   下載 3MF，存成 `3D/Claude.3mf`
+1. Search MakerWorld for "**Clawd the Claude Code mascot (AMS print-in-place)**" (by h2d2),
+   download the 3MF and save it as `3D/Claude.3mf`
 2. `pip install numpy manifold3d matplotlib`
-3. `cd 3D` → `python build_clawd_tdisplay.py`，產生 `Clawd_TDisplay.3mf`
+3. `cd 3D` → `python build_clawd_tdisplay.py`, which creates `Clawd_TDisplay.3mf`
 
-T-Display 外殼 `TTGO_-_Tdisplay_lid.3mf` 是 CC0 授權，已附在 repo 裡。
+The T-Display enclosure `TTGO_-_Tdisplay_lid.3mf` is CC0 and is included in the repo.
 
-![組裝示意圖](3D/Clawd_TDisplay_preview.png)
+![Assembly preview](3D/Clawd_TDisplay_preview.png)
 
-### 檔案內的 5 個零件（已擺好列印方向）
+### The 5 parts in the file (already in print orientation)
 
-| 零件 | 說明 |
+| Part | Description |
 |---|---|
-| `Clawd_body` | Clawd 本體，臉朝上列印，不需支撐 |
-| `TDisplay_front_shell` | T-Display 前殼 |
-| `TDisplay_back_cover` | T-Display 後蓋（已翻面） |
-| `TDisplay_button_1` / `_2` | 兩顆按鈕（已翻面） |
+| `Clawd_body` | Clawd body, printed face up, no supports needed |
+| `TDisplay_front_shell` | T-Display front shell |
+| `TDisplay_back_cover` | T-Display back cover (flipped) |
+| `TDisplay_button_1` / `_2` | The two buttons (flipped) |
 
-### 設計重點
+### Design notes
 
-- Clawd 放大為 **112 × 70 × 33.6 mm**（XY 0.7 倍、Z 0.84 倍），臉部才放得下外殼
-- 原本的眼睛凹洞已填平，改挖一個放外殼的口袋：外殼外型 56.7 × 30.3 × 14 mm，
-  四個角為 **R2.2 圓角**（外殼本身是 R2.0），每邊間隙 0.2 mm
-- 外殼從正面壓入，正面比臉內縮 0.2 mm，螢幕置中
-- 右側開槽讓 USB-C 線出去；背面有 Ø12 mm 圓孔，方便把外殼頂出來
+- Clawd is scaled to **112 × 70 × 33.6 mm** (0.7× in XY, 0.84× in Z) so the face is big enough for the enclosure
+- The original eye recesses are filled in and replaced by a pocket for the enclosure: enclosure outline
+  56.7 × 30.3 × 14 mm, corners rounded to **R2.2** (the enclosure itself is R2.0), 0.2 mm clearance per side
+- The enclosure is pressed in from the front, sits 0.2 mm below the face, with the screen centered
+- A slot on the right side lets the USB-C cable out; a Ø12 mm hole in the back lets you push the enclosure out
 
-### 組裝
+### Assembly
 
-1. 把 T-Display 裝進前殼，裝上按鈕，蓋上後蓋
-2. USB-C 接口朝右，從 Clawd 正面把整個外殼壓進口袋
-3. USB 線從右側的槽穿出
-4. 要拆時從背面圓孔把外殼頂出來
+1. Put the T-Display in the front shell, fit the buttons and close the back cover
+2. With the USB-C port facing right, press the whole enclosure into the pocket from the front of Clawd
+3. Route the USB cable out through the slot on the right side
+4. To remove it, push the enclosure out through the hole in the back
 
-### 調整並重新產生
+### Adjusting and regenerating
 
-可調參數在 `3D/build_clawd_tdisplay.py` 開頭：
+The tunable parameters are at the top of `3D/build_clawd_tdisplay.py`:
 
-| 參數 | 預設 | 說明 |
+| Parameter | Default | Description |
 |---|---|---|
-| `CLEARANCE` | 0.2 | 口袋每邊間隙；壓不進去就加大到 0.25–0.3 |
-| `POCKET_EXTRA_DEPTH` | 0.2 | 外殼正面內縮量 |
-| `SCALE_XY` / `SCALE_Z` | 0.7 / 0.84 | Clawd 縮放比例 |
-| `USB_SLOT_W` / `USB_SLOT_H` | 14.0 / 10.4 | USB 槽大小 |
-| `PUSH_HOLE_D` | 12.0 | 背面頂出孔直徑 |
+| `CLEARANCE` | 0.2 | Pocket clearance per side; increase to 0.25–0.3 if the enclosure won't fit |
+| `POCKET_EXTRA_DEPTH` | 0.2 | How far the enclosure front sits below the face |
+| `SCALE_XY` / `SCALE_Z` | 0.7 / 0.84 | Clawd scale factors |
+| `USB_SLOT_W` / `USB_SLOT_H` | 14.0 / 10.4 | USB slot size |
+| `PUSH_HOLE_D` | 12.0 | Diameter of the push-out hole in the back |
 
 ```
 cd 3D
 python build_clawd_tdisplay.py
 ```
 
-會覆寫 `Clawd_TDisplay.3mf` 與 `Clawd_TDisplay_preview.png`。
+This overwrites `Clawd_TDisplay.3mf` and `Clawd_TDisplay_preview.png`.
 
-> 畫面方向目前是 `tft.setRotation(1)`。若裝進 Clawd 後畫面上下顛倒，改成 `setRotation(3)`
-> 重新燒錄（左右按鈕的實體位置也會對調）。
+> The screen orientation is currently `tft.setRotation(1)`. If the screen is upside down once mounted in Clawd,
+> change it to `setRotation(3)` and reflash (the physical positions of the left and right buttons swap as well).
 
-## 疑難排解
+## Troubleshooting
 
-| 畫面 / 狀況 | 原因與處理 |
+| Screen / symptom | Cause and fix |
 |---|---|
-| `Connecting WiFi...` 一直不消失 | WiFi 名稱或密碼錯、或是 5GHz 網路 → 長按右鍵 5 秒重新設定 |
-| `WiFi OK - token missing` | 板子沒有 token → 執行 `token/` 的取得程式，或在手機設定頁填入 |
-| `Token rejected (HTTP 401)` | token 失效 → 重新執行 `token/` 的取得程式寫入新 token |
-| `Syncing time...` | 等待 NTP 對時，通常幾秒內完成；若卡住，檢查網路是否能連外 |
-| 手機沒有自動跳出設定頁 | 用瀏覽器開 `http://192.168.4.1`；若手機開了「私人 DNS」可能不會自動跳出 |
-| USB 模式顯示 `Waiting for PC...` | 沒有執行 `start_bridge.bat`，或板子不在 USB 模式 |
-| 從 WiFi 切回 USB 沒有資料 | 確認 `start_bridge.bat` 正在執行 |
-| `provision.py` / 燒錄失敗：無法開啟 COM3 | `start_bridge.bat` 還開著，先關掉 |
+| `Connecting WiFi...` never goes away | Wrong WiFi name or password, or a 5 GHz network → hold the right button for 5 s and set it up again |
+| `WiFi OK - token missing` | The board has no token → run the program in `token/`, or enter it on the phone setup page |
+| `Token rejected (HTTP 401)` | The token is invalid → run the program in `token/` again to write a new token |
+| `Syncing time...` | Waiting for NTP time sync, usually done within seconds; if it hangs, check that the network can reach the internet |
+| The phone does not open the setup page automatically | Open `http://192.168.4.1` in a browser; with "Private DNS" enabled on the phone it may not pop up automatically |
+| USB mode shows `Waiting for PC...` | `start_bridge.bat` is not running, or the board is not in USB mode |
+| No data after switching from WiFi back to USB | Make sure `start_bridge.bat` is running |
+| `provision.py` / flashing fails: cannot open COM3 | `start_bridge.bat` is still open; close it first |
 
-## 來源與授權
+## Credits and license
 
-- 本專案（程式碼、文件與 `img/` 中的照片）以 **MIT 授權** 釋出，全文見 [LICENSE](LICENSE)
-- 用量查詢的做法移植自 [juppeee/claude-session-browser](https://github.com/juppeee/claude-session-browser)（MIT）
-- Clawd 3D 模型：MakerWorld「Clawd the Claude Code mascot (AMS print-in-place)」，作者 h2d2，
-  MakerWorld Exclusive License，僅供個人使用；本 repo 不含該模型及其衍生的 3MF，請勿轉發
-- T-Display 外殼：MakerWorld「Enclosure TTGO T-display 1.14"」，作者 3D maker，CC0
-- Clawd 是 Anthropic 的吉祥物，其形象不在 MIT 授權範圍內
+- This project (code, documentation and the photos in `img/`) is released under the **MIT License**; see [LICENSE](LICENSE) for the full text
+- The usage query approach is ported from [juppeee/claude-session-browser](https://github.com/juppeee/claude-session-browser) (MIT)
+- Clawd 3D model: MakerWorld "Clawd the Claude Code mascot (AMS print-in-place)" by h2d2,
+  MakerWorld Exclusive License, personal use only; this repo does not contain that model or any 3MF derived from it — please do not redistribute them
+- T-Display enclosure: MakerWorld "Enclosure TTGO T-display 1.14"" by 3D maker, CC0
+- Clawd is Anthropic's mascot; his likeness is not covered by the MIT License

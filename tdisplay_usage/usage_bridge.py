@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """
-Claude Code 用量 -> LILYGO T-Display (USB 序列埠)
+Claude Code usage -> LILYGO T-Display (USB serial)
 
-每隔一段時間向 Anthropic API 送出 1 token 的極小請求，只讀回應中的
-rate-limit 標頭（5 小時 session 與每週用量），再以一行 JSON 經 USB
-序列埠傳給開發板顯示。OAuth token 只留在這台電腦上，不會送到板子。
+Periodically sends a tiny 1-token request to the Anthropic API, reads only the
+rate-limit headers of the response (5-hour session and weekly usage), and sends
+them to the board as one JSON line over the USB serial port. The OAuth token
+stays on this computer and is never sent to the board.
 
-用法:
-    python usage_bridge.py              # 自動找 CH9102/CP210x 序列埠
+Usage:
+    python usage_bridge.py              # auto-detect the CH9102/CP210x serial port
     python usage_bridge.py --port COM3
-    python usage_bridge.py --once       # 只查一次並印出，不連板子（測試用）
+    python usage_bridge.py --once       # query once and print, no board needed (testing)
 
-需要: pip install pyserial
+Requires: pip install pyserial
 """
 
 import argparse
@@ -37,13 +38,13 @@ API_BODY = {
     "messages": [{"role": "user", "content": "hi"}],
 }
 
-POLL_INTERVAL = 60      # 秒；每次查詢都是一個真實請求，不要調太短
-RETRY_INTERVAL = 15     # 查詢失敗後多久重試
-RESEND_INTERVAL = 10    # 定期重送最後一筆資料，板子重開機後馬上有畫面
+POLL_INTERVAL = 60      # seconds; every query is a real request, don't make it too short
+RETRY_INTERVAL = 15     # retry delay after a failed query
+RESEND_INTERVAL = 10    # periodically resend the last data so a rebooted board shows it at once
 
-# USB 轉序列晶片：CH9102 / CH340 (1A86)、CP210x (10C4)
+# USB-to-serial chips: CH9102 / CH340 (1A86), CP210x (10C4)
 _BOARD_VIDS = {0x1A86, 0x10C4}
-_BOARD_PIDS_EXCLUDE = {0x5722}   # 1A86:5722 是 USB 副螢幕，不是開發板
+_BOARD_PIDS_EXCLUDE = {0x5722}   # 1A86:5722 is a USB display adapter, not the board
 
 
 def log(msg):
@@ -69,7 +70,7 @@ def _credential_candidates():
 
 
 def _keychain_blob():
-    """macOS：Claude Code 把登入資料存在鑰匙圈的 "Claude Code-credentials"。"""
+    """macOS: Claude Code stores its login in the Keychain as "Claude Code-credentials"."""
     import subprocess
     try:
         r = subprocess.run(["security", "find-generic-password", "-s",
@@ -81,7 +82,7 @@ def _keychain_blob():
 
 
 def read_token():
-    """每次查詢前重新讀取，Claude Code 更新 token 後自動跟上。"""
+    """Re-read before every query so a token refreshed by Claude Code is picked up."""
     blobs = []
     if sys.platform == "darwin":
         blobs.append(_keychain_blob)
@@ -110,7 +111,7 @@ def read_token():
 
 
 # --------------------------------------------------------------------------- #
-#  查詢用量
+#  Query usage
 # --------------------------------------------------------------------------- #
 def _pct(v):
     try:
@@ -127,7 +128,7 @@ def _epoch(v):
 
 
 def poll_usage(token):
-    """回傳要送給板子的 dict；失敗時回傳 (None, 錯誤說明)。"""
+    """Return (dict for the board, None), or (None, error message) on failure."""
     headers = dict(API_HEADERS, Authorization=f"Bearer {token}")
     req = urllib.request.Request(API_URL, data=json.dumps(API_BODY).encode(),
                                  headers=headers, method="POST")
@@ -135,12 +136,12 @@ def poll_usage(token):
         with urllib.request.urlopen(req, timeout=20) as resp:
             hdrs = resp.headers
     except urllib.error.HTTPError as e:
-        # 429 等錯誤回應仍帶有 rate-limit 標頭
+        # 429 and other error responses still carry the rate-limit headers
         hdrs = e.headers
         if e.code in (401, 403):
-            return None, f"HTTP {e.code}：token 失效，請重新登入 Claude Code"
+            return None, f"HTTP {e.code}: token invalid, please log in to Claude Code again"
     except Exception as e:
-        return None, f"連線失敗：{e}"
+        return None, f"Connection failed: {e}"
 
     h = lambda name: hdrs.get(name) or ""
     now = int(time.time())
@@ -156,22 +157,22 @@ def poll_usage(token):
         data = {
             "s": _pct(h("anthropic-ratelimit-unified-overage-utilization")),
             "sr": max(0, _epoch(h("anthropic-ratelimit-unified-overage-reset")) - now),
-            "w": -1, "wr": 0,      # -1 = 此帳號沒有每週限制
+            "w": -1, "wr": 0,      # -1 = this account has no weekly limit
             "st": h("anthropic-ratelimit-unified-status") or "unknown",
         }
     else:
-        return None, "回應中沒有 rate-limit 標頭"
+        return None, "No rate-limit headers in the response"
     return data, None
 
 
 def with_clock(data):
-    """附上本地時間（秒，從午夜起算），板子用來顯示時鐘。"""
+    """Add the local time (seconds since midnight) so the board can show a clock."""
     lt = time.localtime()
     return dict(data, t=lt.tm_hour * 3600 + lt.tm_min * 60 + lt.tm_sec)
 
 
 # --------------------------------------------------------------------------- #
-#  序列埠
+#  Serial port
 # --------------------------------------------------------------------------- #
 def find_port():
     from serial.tools import list_ports
@@ -187,7 +188,7 @@ def open_serial(port):
     ser.port = port
     ser.baudrate = 115200
     ser.timeout = 0.2
-    # 開埠時不要拉 DTR/RTS，否則 ESP32 會被重置
+    # Don't assert DTR/RTS when opening, otherwise the ESP32 gets reset
     ser.dtr = False
     ser.rts = False
     ser.open()
@@ -195,8 +196,8 @@ def open_serial(port):
 
 
 def run(port_arg):
-    last = None          # 最後一筆成功的資料
-    last_at = 0.0        # 取得 last 的時間
+    last = None          # last successful data
+    last_at = 0.0        # when `last` was fetched
     next_poll = 0.0
     next_send = 0.0
     ser = None
@@ -208,10 +209,10 @@ def run(port_arg):
             if port:
                 try:
                     ser = open_serial(port)
-                    log(f"已連上 {port}")
+                    log(f"Connected to {port}")
                     next_send = 0.0
                 except Exception as e:
-                    log(f"無法開啟 {port}：{e}")
+                    log(f"Cannot open {port}: {e}")
             if ser is None:
                 time.sleep(3)
                 continue
@@ -219,23 +220,23 @@ def run(port_arg):
         if now >= next_poll:
             token = read_token()
             if not token:
-                data, err = None, "找不到 Claude Code token（~/.claude/.credentials.json 或 macOS 鑰匙圈）"
+                data, err = None, "Claude Code token not found (~/.claude/.credentials.json or macOS Keychain)"
             else:
                 data, err = poll_usage(token)
             if data:
                 last, last_at = data, now
                 next_poll = now + POLL_INTERVAL
-                log(f"5h {data['s']}%  每週 {data['w']}%  ({data['st']})")
+                log(f"5h {data['s']}%  weekly {data['w']}%  ({data['st']})")
             else:
                 next_poll = now + RETRY_INTERVAL
                 log(err)
                 if last is None:
-                    # 板子的內建字型只有 ASCII
+                    # The board's built-in fonts are ASCII only
                     _write(ser, {"err": "Query failed - see PC"})
             next_send = 0.0
 
         if last and now >= next_send:
-            # 重送時把倒數扣掉經過的時間
+            # When resending, subtract the elapsed time from the countdowns
             el = int(now - last_at)
             msg = dict(last, sr=max(0, last["sr"] - el), wr=max(0, last["wr"] - el))
             if not _write(ser, with_clock(msg)):
@@ -243,15 +244,15 @@ def run(port_arg):
                 continue
             next_send = now + RESEND_INTERVAL
 
-        # 讀板子的訊息：按下按鈕會送 "refresh"
+        # Read messages from the board
         try:
             line = ser.readline().decode("utf-8", "ignore").strip()
         except Exception:
-            log("序列埠中斷，重新連線…")
+            log("Serial port lost, reconnecting...")
             ser = None
             continue
         if line == "refresh":
-            log("板子要求立即更新")
+            log("Board requested an immediate update")
             next_poll = 0.0
         elif line == "ready":
             next_send = 0.0
@@ -262,7 +263,7 @@ def _write(ser, obj):
         ser.write((json.dumps(obj, separators=(",", ":")) + "\n").encode())
         return True
     except Exception:
-        log("寫入序列埠失敗，重新連線…")
+        log("Serial write failed, reconnecting...")
         try:
             ser.close()
         except Exception:
@@ -272,14 +273,14 @@ def _write(ser, obj):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--port", help="序列埠，例如 COM3（預設自動偵測）")
-    ap.add_argument("--once", action="store_true", help="只查詢一次並印出")
+    ap.add_argument("--port", help="serial port, e.g. COM3 (default: auto-detect)")
+    ap.add_argument("--once", action="store_true", help="query once and print")
     args = ap.parse_args()
 
     if args.once:
         token = read_token()
         if not token:
-            sys.exit("找不到 Claude Code token")
+            sys.exit("Claude Code token not found")
         data, err = poll_usage(token)
         print(json.dumps(with_clock(data), ensure_ascii=False) if data else err)
         sys.exit(0 if data else 1)

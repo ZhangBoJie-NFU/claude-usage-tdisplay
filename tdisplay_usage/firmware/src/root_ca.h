@@ -1,5 +1,5 @@
-// api.anthropic.com 憑證的根 CA（Google Trust Services），用來驗證 HTTPS
-// 鏈：api.anthropic.com <- WE1 <- GTS Root R4。R1 備用，以防日後換鏈。
+// Root CAs of the api.anthropic.com certificate (Google Trust Services), used to verify HTTPS
+// Chain: api.anthropic.com <- WE1 <- GTS Root R4. R1 is a spare in case the chain changes.
 #pragma once
 
 static const char ROOT_CA[] =
