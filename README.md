@@ -1,5 +1,7 @@
 # Claude Code 用量顯示器（LILYGO T-Display V1.1 + Clawd 外殼）
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-3ecf8e.svg)](LICENSE)
+
 把 Claude Code 的 **5 小時 session 用量** 和 **每週用量** 即時顯示在 LILYGO T-Display V1.1
 的小螢幕上，再把開發板裝進 Clawd（Claude 吉祥物）3D 列印模型的眼睛位置。
 
@@ -8,8 +10,19 @@ USB  模式（預設）: usage_bridge.py (電腦) ──USB 序列埠──> T-D
 WiFi 模式        : T-Display ──WiFi，每 60 秒──> api.anthropic.com     （USB 只供電）
 ```
 
+## 成果展示
+
+<p align="center">
+  <img src="img/showcase-front.jpg" width="49%" alt="裝在 Clawd 外殼中的 T-Display，WiFi 模式顯示 5 小時與每週用量">
+  <img src="img/showcase-desk.jpg" width="49%" alt="放在鍵盤前方的成品">
+</p>
+
+T-Display 嵌在 3D 列印的 Clawd 眼睛位置，USB-C 線從右側槽口接出，WiFi 模式下只需供電。
+螢幕上方是 5 小時 session 用量（7%，1 小時 07 分後重置），下方是每週用量（73%，2 天 6 小時後重置）。
+
 ## 目錄
 
+- [成果展示](#成果展示)
 - [硬體與軟體需求](#硬體與軟體需求)
 - [資料夾內容](#資料夾內容)
 - [畫面與按鈕](#畫面與按鈕)
@@ -54,6 +67,8 @@ tdisplay_usage/
     src/main.cpp         韌體主程式
     src/root_ca.h        HTTPS 用的 Google Trust Services 根憑證
   backup/                燒錄前自己備份的原廠韌體（不在 repo 裡，見「還原原本的韌體」）
+
+img/                           成果展示照片
 
 3D/
   Claude.3mf                   Clawd 原始模型（授權不允許轉發，需自行下載，見下方）
@@ -394,8 +409,8 @@ python build_clawd_tdisplay.py
 
 ## 來源與授權
 
-- 程式碼採 MIT 授權，見 [LICENSE](LICENSE)。用量查詢的做法移植自
-  [juppeee/claude-session-browser](https://github.com/juppeee/claude-session-browser)（MIT）
+- 本專案（程式碼、文件與 `img/` 中的照片）以 **MIT 授權** 釋出，全文見 [LICENSE](LICENSE)
+- 用量查詢的做法移植自 [juppeee/claude-session-browser](https://github.com/juppeee/claude-session-browser)（MIT）
 - Clawd 3D 模型：MakerWorld「Clawd the Claude Code mascot (AMS print-in-place)」，作者 h2d2，
   MakerWorld Exclusive License，僅供個人使用；本 repo 不含該模型及其衍生的 3MF，請勿轉發
 - T-Display 外殼：MakerWorld「Enclosure TTGO T-display 1.14"」，作者 3D maker，CC0

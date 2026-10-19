@@ -8,6 +8,7 @@
 !/tdisplay_usage/
 !/token/
 !/3D/
+!/img/
 
 # 板子的 flash 備份含裝置資料，不公開
 /tdisplay_usage/backup/
