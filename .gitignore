@@ -1,0 +1,23 @@
+# 只追蹤 T-Display 用量顯示器相關檔案；
+# 資料夾裡原本的 Claude Session Browser 程式不放進這個 repo
+/*
+!/.gitignore
+!/.gitattributes
+!/README.md
+!/LICENSE
+!/tdisplay_usage/
+!/token/
+!/3D/
+
+# 板子的 flash 備份含裝置資料，不公開
+/tdisplay_usage/backup/
+
+# MakerWorld Exclusive 授權的 Clawd 模型與其衍生檔，不可轉發
+/3D/Claude.3mf
+/3D/Clawd_TDisplay.3mf
+
+# 建置產物
+.pio/
+.vscode/
+__pycache__/
+*.pyc
