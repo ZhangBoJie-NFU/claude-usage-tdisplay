@@ -7,15 +7,10 @@
 !/LICENSE
 !/tdisplay_usage/
 !/token/
-!/3D/
 !/img/
 
 # The board's flash backup contains device data, keep it private
 /tdisplay_usage/backup/
-
-# Clawd model under the MakerWorld Exclusive License and files derived from it, not redistributable
-/3D/Claude.3mf
-/3D/Clawd_TDisplay.3mf
 
 # Build output
 .pio/
